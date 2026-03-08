@@ -2,6 +2,7 @@
 //!
 //! Provides comprehensive workspace management functionality.
 
+use super::bootstrap::ensure_workspace_bootstrap_files;
 use super::manager::{
     ScanOptions, WorkspaceInfo, WorkspaceManager, WorkspaceManagerConfig,
     WorkspaceManagerStatistics, WorkspaceStatus, WorkspaceSummary, WorkspaceType,
@@ -114,6 +115,7 @@ impl WorkspaceService {
             if let Err(e) = self.save_workspace_data().await {
                 warn!("Failed to save workspace data after opening: {}", e);
             }
+            self.ensure_current_workspace_bootstrap_files().await;
         }
 
         result
@@ -151,6 +153,7 @@ impl WorkspaceService {
             .insert(workspace.id.clone(), workspace.clone());
 
         drop(manager);
+        self.ensure_current_workspace_bootstrap_files().await;
 
         Ok(workspace)
     }
@@ -166,6 +169,7 @@ impl WorkspaceService {
             if let Err(e) = self.save_workspace_data().await {
                 warn!("Failed to save workspace data after closing: {}", e);
             }
+            self.ensure_current_workspace_bootstrap_files().await;
         }
 
         result
@@ -182,6 +186,7 @@ impl WorkspaceService {
             if let Err(e) = self.save_workspace_data().await {
                 warn!("Failed to save workspace data after closing: {}", e);
             }
+            self.ensure_current_workspace_bootstrap_files().await;
         }
 
         result
@@ -198,6 +203,7 @@ impl WorkspaceService {
             if let Err(e) = self.save_workspace_data().await {
                 warn!("Failed to save workspace data after switching active workspace: {}", e);
             }
+            self.ensure_current_workspace_bootstrap_files().await;
         }
 
         result
@@ -302,6 +308,7 @@ impl WorkspaceService {
             if let Err(e) = self.save_workspace_data().await {
                 warn!("Failed to save workspace data after removal: {}", e);
             }
+            self.ensure_current_workspace_bootstrap_files().await;
         }
 
         result
@@ -585,6 +592,8 @@ impl WorkspaceService {
 
         drop(manager);
 
+        self.ensure_current_workspace_bootstrap_files().await;
+
         Ok(result)
     }
 
@@ -625,6 +634,24 @@ impl WorkspaceService {
             .map_err(|e| BitFunError::service(format!("Failed to save workspace data: {}", e)))?;
 
         Ok(())
+    }
+
+    async fn ensure_current_workspace_bootstrap_files(&self) {
+        let Some(workspace_path) = self
+            .get_current_workspace()
+            .await
+            .map(|workspace| workspace.root_path)
+        else {
+            return;
+        };
+
+        if let Err(e) = ensure_workspace_bootstrap_files(&workspace_path).await {
+            warn!(
+                "Failed to ensure workspace bootstrap files: path={}, error={}",
+                workspace_path.display(),
+                e
+            );
+        }
     }
 
     /// Loads workspace data from local storage.
@@ -693,6 +720,8 @@ impl WorkspaceService {
                 }
             }
         }
+
+        self.ensure_current_workspace_bootstrap_files().await;
 
         Ok(())
     }

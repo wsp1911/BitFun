@@ -8,8 +8,10 @@ use crate::service::project_context::ProjectContextService;
 use crate::util::errors::{BitFunError, BitFunResult};
 use log::{debug, warn};
 use std::path::Path;
+use tokio::fs;
 
 /// Placeholder constants
+const PLACEHOLDER_PERSONA: &str = "{PERSONA}";
 const PLACEHOLDER_ENV_INFO: &str = "{ENV_INFO}";
 const PLACEHOLDER_PROJECT_LAYOUT: &str = "{PROJECT_LAYOUT}";
 // PROJECT_CONTEXT_FILES needs configuration parsing
@@ -17,7 +19,9 @@ const PLACEHOLDER_PROJECT_LAYOUT: &str = "{PROJECT_LAYOUT}";
 const PLACEHOLDER_RULES: &str = "{RULES}";
 const PLACEHOLDER_MEMORIES: &str = "{MEMORIES}";
 const PLACEHOLDER_LANGUAGE_PREFERENCE: &str = "{LANGUAGE_PREFERENCE}";
+const PLACEHOLDER_AGENT_MEMORY: &str = "{AGENT_MEMORY}";
 const PLACEHOLDER_VISUAL_MODE: &str = "{VISUAL_MODE}";
+const PERSONA_FILE_NAMES: [&str; 4] = ["BOOTSTRAP.md", "SOUL.md", "USER.md", "IDENTITY.MD"];
 
 pub struct PromptBuilder {
     pub workspace_path: String,
@@ -99,6 +103,65 @@ These files are maintained by the user and should NOT be modified unless explici
         }
     }
 
+    /// Get workspace persona files from the workspace root.
+    pub async fn get_persona(&self) -> Option<String> {
+        let workspace = Path::new(&self.workspace_path);
+        let mut documents = Vec::new();
+
+        for file_name in PERSONA_FILE_NAMES {
+            let file_path = workspace.join(file_name);
+            if !file_path.exists() {
+                continue;
+            }
+
+            match fs::read_to_string(&file_path).await {
+                Ok(content) => documents.push((file_name, content)),
+                Err(e) => {
+                    warn!(
+                        "Failed to read persona file: path={} error={}",
+                        file_path.display(),
+                        e
+                    );
+                }
+            }
+        }
+
+        if documents.is_empty() {
+            return None;
+        }
+
+        let mut prompt = String::from("<persona>\n");
+        for (file_name, content) in documents {
+            prompt.push_str(&format!(
+                "<persona_file name=\"{}\" description=\"{}\">\n{}\n</persona_file>\n",
+                file_name,
+                Self::persona_file_description(file_name),
+                content
+            ));
+        }
+        prompt.push_str("</persona>");
+
+        Some(format!(
+            r#"# Persona
+
+The following files are located in the workspace root directory.
+
+{}
+"#,
+            prompt
+        ))
+    }
+
+    fn persona_file_description(file_name: &str) -> &'static str {
+        match file_name {
+            "BOOTSTRAP.md" => "Bootstrap guidance and initialization instructions",
+            "SOUL.md" => "Core persona, values, and behavioral style",
+            "USER.md" => "User profile, preferences, and collaboration expectations",
+            "IDENTITY.MD" => "Workspace identity, role definition, and self-description",
+            _ => "Workspace persona file",
+        }
+    }
+
     /// Load AI memories from disk and format as prompt
     pub async fn load_ai_memories(&self) -> Option<String> {
         let path_manager = match try_get_path_manager_arc() {
@@ -125,6 +188,42 @@ These files are maintained by the user and should NOT be modified unless explici
                 None
             }
         }
+    }
+
+    /// Build the agent memory section: instructions + auto-loaded memory index
+    ///
+    /// Replaces `<workspace>` with the real workspace path and `{YYYY-MM-DD}` with today's date.
+    /// Appends the contents of `memory.md` (up to 200 lines) when present.
+    pub async fn build_agent_memory(&self) -> String {
+        let memory_dir = format!("{}/.bitfun/memory", self.workspace_path);
+        let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+
+        let mut section = format!(
+            r#"# Memory
+
+The following memories are persisted to disk under `{memory_dir}/`.
+
+- **Index**: `memory.md` is auto-loaded (up to 200 lines) and serves as the memory index. Keep it concise — link to topic files rather than inlining details.
+- **Daily journal**: Write or append to `{today}.md` for important user requests, decisions, constraints, and outcomes. Skip greetings, small talk, and trivial Q&A.
+- **Topic files**: Organize long-lived knowledge as `<topic>.md` (e.g., `debugging.md`, `architecture.md`, `preferences.md`).
+- **Write**: Use Edit/Write tools to create or update memory files.
+- **Read**: Use Grep/Read tools to search and retrieve memories.
+"#
+        );
+
+        let index_path = format!("{}/memory.md", memory_dir);
+        match fs::read_to_string(&index_path).await {
+            Ok(content) if !content.trim().is_empty() => {
+                let truncated: String = content.lines().take(200).collect::<Vec<_>>().join("\n");
+                section.push_str(&format!(
+                    "\n<memory_index>\n{}\n</memory_index>\n",
+                    truncated
+                ));
+            }
+            _ => {}
+        }
+
+        section
     }
 
     /// Load AI rules from disk and format as prompt
@@ -214,10 +313,12 @@ Prefer MermaidInteractive tool when available, otherwise output Mermaid code blo
     /// Build prompt from template, automatically fill content based on placeholders
     ///
     /// Supported placeholders:
+    /// - `{PERSONA}` - Workspace persona files (BOOTSTRAP.md, SOUL.md, USER.md, IDENTITY.MD)
     /// - `{LANGUAGE_PREFERENCE}` - User language preference (read from global config)
     /// - `{ENV_INFO}` - Environment information
     /// - `{PROJECT_LAYOUT}` - Project file layout
     /// - `{PROJECT_CONTEXT_FILES}` - Project context files (AGENTS.md, CLAUDE.md, etc.)
+    /// - `{AGENT_MEMORY}` - Agent memory instructions + auto-loaded memory index
     /// - `{RULES}` - AI rules
     /// - `{MEMORIES}` - AI memories
     /// - `{VISUAL_MODE}` - Visual mode instruction (Mermaid diagrams, read from global config)
@@ -225,6 +326,12 @@ Prefer MermaidInteractive tool when available, otherwise output Mermaid code blo
     /// If a placeholder is not in the template, corresponding content will not be added
     pub async fn build_prompt_from_template(&self, template: &str) -> BitFunResult<String> {
         let mut result = template.to_string();
+
+        // Replace {PERSONA}
+        if result.contains(PLACEHOLDER_PERSONA) {
+            let persona = self.get_persona().await.unwrap_or_default();
+            result = result.replace(PLACEHOLDER_PERSONA, &persona);
+        }
 
         // Replace {LANGUAGE_PREFERENCE}
         if result.contains(PLACEHOLDER_LANGUAGE_PREFERENCE) {
@@ -277,6 +384,12 @@ Prefer MermaidInteractive tool when available, otherwise output Mermaid code blo
                 .unwrap_or_default();
 
             result = result.replace(placeholder, &project_context);
+        }
+
+        // Replace {AGENT_MEMORY}
+        if result.contains(PLACEHOLDER_AGENT_MEMORY) {
+            let agent_memory = self.build_agent_memory().await;
+            result = result.replace(PLACEHOLDER_AGENT_MEMORY, &agent_memory);
         }
 
         // Replace {RULES}

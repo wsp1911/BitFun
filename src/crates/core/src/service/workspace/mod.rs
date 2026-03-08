@@ -2,6 +2,7 @@
 //!
 //! Full workspace management system: open, manage, scan, statistics, etc.
 
+pub(crate) mod bootstrap;
 pub mod context_generator;
 pub mod factory;
 pub mod manager;
