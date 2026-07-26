@@ -1,4 +1,5 @@
-use serde_json::Value;
+use serde::Serialize;
+use serde_json::{Map, Value};
 use std::fmt;
 
 pub const CALL_DEFERRED_TOOL_NAME: &str = "CallDeferredTool";
@@ -39,22 +40,32 @@ impl fmt::Display for CallDeferredToolInputError {
 impl std::error::Error for CallDeferredToolInputError {}
 
 pub fn call_deferred_tool_input_schema() -> Value {
-    serde_json::json!({
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["tool_name", "args"],
-        "properties": {
-            "tool_name": {
-                "type": "string",
-                "description": "Exact deferred tool name previously loaded with GetToolSpec."
-            },
-            "args": {
-                "type": "object",
-                "additionalProperties": true,
-                "description": "Arguments matching the schema returned by GetToolSpec."
-            }
-        }
-    })
+    let mut properties = Map::new();
+    properties.insert(
+        "tool_name".to_string(),
+        serde_json::json!({
+            "type": "string",
+            "description": "Exact deferred tool name previously loaded with GetToolSpec."
+        }),
+    );
+    properties.insert(
+        "args".to_string(),
+        serde_json::json!({
+            "type": "object",
+            "additionalProperties": true,
+            "description": "Arguments matching the schema returned by GetToolSpec."
+        }),
+    );
+
+    let mut schema = Map::new();
+    schema.insert("type".to_string(), Value::String("object".to_string()));
+    schema.insert("additionalProperties".to_string(), Value::Bool(false));
+    schema.insert(
+        "required".to_string(),
+        serde_json::json!(["tool_name", "args"]),
+    );
+    schema.insert("properties".to_string(), Value::Object(properties));
+    Value::Object(schema)
 }
 
 pub fn call_deferred_tool_short_description() -> String {
@@ -78,6 +89,40 @@ pub fn parse_call_deferred_tool_input(
         tool_name: tool_name.to_string(),
         args: args.clone(),
     })
+}
+
+/// Rebuild a valid gateway invocation with the target name before its
+/// arguments. This is an outbound presentation rule; validation remains
+/// independent of input field order.
+pub fn canonicalize_call_deferred_tool_input(
+    input: &Value,
+) -> Result<Value, CallDeferredToolInputError> {
+    let (tool_name, args) = parse_call_deferred_tool_input_ref(input)?;
+    let mut object = Map::new();
+    object.insert(
+        "tool_name".to_string(),
+        Value::String(tool_name.to_string()),
+    );
+    object.insert("args".to_string(), args.clone());
+    Ok(Value::Object(object))
+}
+
+/// Serialize a valid gateway invocation in the order expected by the
+/// incremental deferred-tool presentation path.
+pub fn serialize_call_deferred_tool_input(
+    input: &Value,
+) -> Result<String, CallDeferredToolInputError> {
+    let (tool_name, args) = parse_call_deferred_tool_input_ref(input)?;
+    Ok(
+        serde_json::to_string(&CallDeferredToolWireInput { tool_name, args })
+            .expect("serde_json::Value must always serialize"),
+    )
+}
+
+#[derive(Serialize)]
+struct CallDeferredToolWireInput<'a> {
+    tool_name: &'a str,
+    args: &'a Value,
 }
 
 fn parse_call_deferred_tool_input_ref(
@@ -188,5 +233,47 @@ impl ResolvedToolInvocation {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        call_deferred_tool_input_schema, canonicalize_call_deferred_tool_input,
+        serialize_call_deferred_tool_input,
+    };
+    use serde_json::Value;
+
+    #[test]
+    fn canonicalizes_deferred_tool_fields_for_outbound_replay() {
+        let input: Value = serde_json::from_str(
+            r#"{"args":{"url":"https://example.test"},"tool_name":"WebFetch"}"#,
+        )
+        .expect("valid deferred tool input");
+
+        let canonical = canonicalize_call_deferred_tool_input(&input)
+            .expect("valid deferred tool input is canonicalized");
+
+        assert_eq!(
+            serde_json::to_string(&canonical).expect("canonical input serializes"),
+            r#"{"tool_name":"WebFetch","args":{"url":"https://example.test"}}"#
+        );
+        assert_eq!(
+            serialize_call_deferred_tool_input(&input).expect("valid input serializes"),
+            r#"{"tool_name":"WebFetch","args":{"url":"https://example.test"}}"#
+        );
+    }
+
+    #[test]
+    fn schema_lists_target_name_before_arguments() {
+        let schema = call_deferred_tool_input_schema();
+        let property_names = schema["properties"]
+            .as_object()
+            .expect("schema properties are an object")
+            .keys()
+            .map(String::as_str)
+            .collect::<Vec<_>>();
+
+        assert_eq!(property_names, ["tool_name", "args"]);
     }
 }

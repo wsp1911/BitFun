@@ -2,6 +2,10 @@ use crate::agentic::image_analysis::ImageContextData;
 use crate::util::types::{Message as AIMessage, ToolCall as AIToolCall, ToolImageAttachment};
 use crate::util::TokenCounter;
 use bitfun_agent_runtime::prompt_markup::is_system_reminder_only;
+use bitfun_agent_tools::{
+    canonicalize_call_deferred_tool_input, serialize_call_deferred_tool_input,
+    CALL_DEFERRED_TOOL_NAME,
+};
 pub use bitfun_runtime_ports::{CompressionContract, CompressionContractItem};
 use log::warn;
 use serde::{Deserialize, Serialize};
@@ -315,11 +319,31 @@ impl From<Message> for AIMessage {
                     Some(
                         tool_calls
                             .into_iter()
-                            .map(|tc| AIToolCall {
-                                id: tc.tool_id,
-                                name: tc.tool_name,
-                                arguments: tc.arguments,
-                                raw_arguments: tc.raw_arguments,
+                            .map(|tc| {
+                                let (arguments, raw_arguments) =
+                                    if tc.tool_name == CALL_DEFERRED_TOOL_NAME {
+                                        match canonicalize_call_deferred_tool_input(&tc.arguments) {
+                                        Ok(arguments) => (
+                                            arguments,
+                                            Some(
+                                                serialize_call_deferred_tool_input(&tc.arguments)
+                                                    .expect(
+                                                    "validated deferred tool input must serialize",
+                                                ),
+                                            ),
+                                        ),
+                                        Err(_) => (tc.arguments, tc.raw_arguments),
+                                    }
+                                    } else {
+                                        (tc.arguments, tc.raw_arguments)
+                                    };
+
+                                AIToolCall {
+                                    id: tc.tool_id,
+                                    name: tc.tool_name,
+                                    arguments,
+                                    raw_arguments,
+                                }
                             })
                             .collect(),
                     )
@@ -713,6 +737,7 @@ mod tests {
     use super::{Message, ToolCall};
     use crate::util::types::Message as AIMessage;
     use bitfun_agent_stream::ToolArgumentRepairKind;
+    use bitfun_agent_tools::CALL_DEFERRED_TOOL_NAME;
     use serde_json::json;
 
     #[test]
@@ -724,6 +749,95 @@ mod tests {
 
         assert_eq!(ai_msg.reasoning_content.as_deref(), Some(""));
         assert_eq!(ai_msg.thinking_signature.as_deref(), Some("sig_1"));
+    }
+
+    #[test]
+    fn canonicalizes_deferred_tool_input_for_provider_replay() {
+        let arguments = serde_json::from_str(
+            r#"{"args":{"url":"https://example.test"},"tool_name":"WebFetch"}"#,
+        )
+        .expect("valid deferred tool input");
+        let original_raw = r#"{"args":{"url":"https://example.test"},"tool_name":"WebFetch"}"#;
+        let message = Message::assistant_with_tools(
+            String::new(),
+            vec![ToolCall {
+                tool_id: "call_1".to_string(),
+                tool_name: CALL_DEFERRED_TOOL_NAME.to_string(),
+                arguments,
+                raw_arguments: Some(original_raw.to_string()),
+                is_error: false,
+                parse_error: None,
+                recovered_from_truncation: false,
+                repair_kind: Default::default(),
+            }],
+        );
+
+        let ai_message = AIMessage::from(message);
+        let tool_call = ai_message
+            .tool_calls
+            .expect("assistant tool calls")
+            .pop()
+            .expect("deferred tool call");
+
+        assert_eq!(
+            serde_json::to_string(&tool_call.arguments).expect("arguments serialize"),
+            r#"{"tool_name":"WebFetch","args":{"url":"https://example.test"}}"#
+        );
+        assert_eq!(
+            tool_call.raw_arguments.as_deref(),
+            Some(r#"{"tool_name":"WebFetch","args":{"url":"https://example.test"}}"#)
+        );
+    }
+
+    #[cfg(feature = "ai-adapter-runtime")]
+    #[test]
+    fn canonicalized_deferred_input_reaches_each_provider_in_target_first_order() {
+        use crate::infrastructure::ai::providers::{
+            anthropic::AnthropicMessageConverter, gemini::GeminiMessageConverter,
+            openai::OpenAIMessageConverter,
+        };
+
+        let arguments = serde_json::from_str(
+            r#"{"args":{"url":"https://example.test"},"tool_name":"WebFetch"}"#,
+        )
+        .expect("valid deferred tool input");
+        let ai_message = AIMessage::from(Message::assistant_with_tools(
+            String::new(),
+            vec![ToolCall {
+                tool_id: "call_1".to_string(),
+                tool_name: CALL_DEFERRED_TOOL_NAME.to_string(),
+                arguments,
+                raw_arguments: Some(
+                    r#"{"args":{"url":"https://example.test"},"tool_name":"WebFetch"}"#.to_string(),
+                ),
+                is_error: false,
+                parse_error: None,
+                recovered_from_truncation: false,
+                repair_kind: Default::default(),
+            }],
+        ));
+        let expected = r#"{"tool_name":"WebFetch","args":{"url":"https://example.test"}}"#;
+
+        let openai = OpenAIMessageConverter::convert_messages(vec![ai_message.clone()]);
+        assert_eq!(
+            openai[0]["tool_calls"][0]["function"]["arguments"],
+            json!(expected)
+        );
+
+        let (_, anthropic) = AnthropicMessageConverter::convert_messages(vec![ai_message.clone()]);
+        assert_eq!(
+            serde_json::to_string(&anthropic[0]["content"][0]["input"])
+                .expect("Anthropic input serializes"),
+            expected
+        );
+
+        let (_, gemini) =
+            GeminiMessageConverter::convert_messages(vec![ai_message], "gemini-2.5-pro");
+        assert_eq!(
+            serde_json::to_string(&gemini[0]["parts"][0]["functionCall"]["args"])
+                .expect("Gemini args serialize"),
+            expected
+        );
     }
 
     #[test]
