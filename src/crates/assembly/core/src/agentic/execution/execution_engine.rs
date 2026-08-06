@@ -8,9 +8,9 @@ use super::model_exchange_trace::{
 use super::round_executor::{ModelRoundLifecycle, RoundExecutor};
 use super::types::{ExecutionContext, ExecutionResult, RoundContext, RoundResult};
 use crate::agentic::agents::{
-    build_prompt_context_for_workspace, get_agent_registry, PrependedPromptReminders,
-    PromptBuilder, PromptBuilderContext, RuntimeContextNeeds, ToolListingSections,
-    UserContextPolicy, UserContextSection,
+    build_prompt_context_for_workspace, get_agent_registry, is_swarm_planner_agent_type,
+    PrependedPromptReminders, PromptBuilder, PromptBuilderContext, RuntimeContextNeeds,
+    ToolListingSections, UserContextPolicy, UserContextSection,
 };
 use crate::agentic::context_profile::{ContextProfilePolicy, ModelCapabilityProfile};
 use crate::agentic::core::{
@@ -1062,7 +1062,7 @@ impl ExecutionEngine {
             } else {
                 None
             },
-            agent_listing: if has_tool_definition("Task") {
+            agent_listing: if has_tool_definition("Task") || has_tool_definition("AgentSpawn") {
                 TaskTool::build_available_agents_context_section(Some(tool_context)).await
             } else {
                 None
@@ -1298,9 +1298,13 @@ impl ExecutionEngine {
             skill_listing: baseline_tool_sections
                 .as_ref()
                 .and_then(|sections| sections.render_skill_listing_reminder()),
-            agent_listing: baseline_tool_sections
-                .as_ref()
-                .and_then(|sections| sections.render_agent_listing_reminder()),
+            agent_listing: if is_swarm_planner_agent_type(current_agent.id()) {
+                None
+            } else {
+                baseline_tool_sections
+                    .as_ref()
+                    .and_then(|sections| sections.render_agent_listing_reminder())
+            },
             runtime_context,
             user_context,
         }

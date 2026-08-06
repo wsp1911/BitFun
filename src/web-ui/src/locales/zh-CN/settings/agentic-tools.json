@@ -16,6 +16,8 @@
     "autoExecuteDesc": "跳过工具执行前的用户确认步骤。",
     "subagentMaxConcurrency": "子智能体并发上限",
     "subagentMaxConcurrencyDesc": "同一时间允许并行运行的子智能体数量。",
+    "swarmMaxConcurrency": "Swarm 工作并发上限",
+    "swarmMaxConcurrencyDesc": "同一时间允许并行运行的 Swarm Worker 和 Reviewer 数量，与普通子智能体上限独立。",
     "confirmTimeout": "确认超时",
     "confirmTimeoutDesc": "等待用户确认工具调用的最长时间（秒）。",
     "confirmTimeoutHint": "设置为 0 可关闭确认超时。",

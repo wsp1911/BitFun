@@ -774,6 +774,10 @@ pub struct AIConfig {
     #[serde(default = "default_subagent_max_concurrency")]
     pub subagent_max_concurrency: usize,
 
+    /// Maximum number of Swarm workers and reviewers that may execute concurrently.
+    #[serde(default = "default_swarm_max_concurrency")]
+    pub swarm_max_concurrency: usize,
+
     /// Scheduling policy for multiple subagent launch calls in the same model batch.
     #[serde(default = "default_subagent_batch_execution_policy")]
     pub subagent_batch_execution_policy: SubagentBatchExecutionPolicy,
@@ -1034,6 +1038,10 @@ fn default_enable_deferred_tool_loading() -> bool {
 
 fn default_subagent_max_concurrency() -> usize {
     5
+}
+
+fn default_swarm_max_concurrency() -> usize {
+    16
 }
 
 fn default_memory_max_raw_memories_for_consolidation() -> usize {
@@ -1832,6 +1840,7 @@ impl Default for AIConfig {
             review_teams: default_review_team_configs(),
             review_team_rate_limit_status: default_review_team_rate_limit_status(),
             subagent_max_concurrency: default_subagent_max_concurrency(),
+            swarm_max_concurrency: default_swarm_max_concurrency(),
             subagent_batch_execution_policy: default_subagent_batch_execution_policy(),
             proxy: ProxyConfig::default(),
             stream_idle_timeout_secs: default_stream_idle_timeout(),
@@ -2614,6 +2623,7 @@ mod tests {
         assert!(config.enable_deferred_tool_loading);
         assert!(config.allow_tool_json_repair);
         assert_eq!(config.subagent_max_concurrency, 5);
+        assert_eq!(config.swarm_max_concurrency, 16);
         assert_eq!(
             config.subagent_batch_execution_policy,
             SubagentBatchExecutionPolicy::ForceParallel
@@ -2789,6 +2799,7 @@ mod tests {
         assert_eq!(config.stream_ttft_timeout_secs, Some(600));
         assert!(config.allow_tool_json_repair);
         assert_eq!(config.subagent_max_concurrency, 5);
+        assert_eq!(config.swarm_max_concurrency, 16);
         assert_eq!(
             config.subagent_batch_execution_policy,
             SubagentBatchExecutionPolicy::ForceParallel
@@ -2864,6 +2875,24 @@ mod tests {
         .expect("config with subagent_max_concurrency should deserialize");
 
         assert_eq!(config.subagent_max_concurrency, 9);
+    }
+
+    #[test]
+    fn deserializes_explicit_swarm_max_concurrency() {
+        let config: AIConfig = serde_json::from_value(serde_json::json!({
+            "models": [],
+            "func_agent_models": {},
+            "default_models": {},
+            "agent_profiles": {},
+            "swarm_max_concurrency": 24,
+            "proxy": {
+                "enabled": false,
+                "url": ""
+            }
+        }))
+        .expect("config with swarm_max_concurrency should deserialize");
+
+        assert_eq!(config.swarm_max_concurrency, 24);
     }
 
     #[test]

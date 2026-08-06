@@ -16,6 +16,8 @@
     "autoExecuteDesc": "Skip user confirmation before tool execution.",
     "subagentMaxConcurrency": "Subagent Concurrency Limit",
     "subagentMaxConcurrencyDesc": "How many subagents may run in parallel at the same time.",
+    "swarmMaxConcurrency": "Swarm worker concurrency",
+    "swarmMaxConcurrencyDesc": "How many Swarm Workers and Reviewers may run in parallel. This is independent of the ordinary subagent limit.",
     "confirmTimeout": "Confirm Timeout",
     "confirmTimeoutDesc": "Maximum time (seconds) to wait for user confirmation of tool calls.",
     "confirmTimeoutHint": "Set 0 to disable confirmation timeout.",
