@@ -77,7 +77,7 @@ export function useScrollToTurnHeader(
 
     const scrollerRect = scroller.getBoundingClientRect();
     const targetRect = targetElement.getBoundingClientRect();
-    const viewportTop = scrollerRect.top + 57; // Keep in sync with PINNED_TURN_VIEWPORT_OFFSET_PX.
+    const viewportTop = scrollerRect.top;
 
     // Distance from target top to viewport top (positive = target is above viewport).
     const distanceAboveViewport = viewportTop - targetRect.top;

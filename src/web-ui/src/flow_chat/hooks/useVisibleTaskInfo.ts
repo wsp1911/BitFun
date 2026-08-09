@@ -13,7 +13,7 @@ import type { VirtualItem } from '../store/modernFlowChatStore';
 import type { FlowToolItem } from '../types/flow-chat';
 import { getEffectiveToolName, projectEffectiveToolItem } from '../utils/toolInvocationIdentity';
 
-const VIEWPORT_TOP_OFFSET_PX = 57; // Keep in sync with PINNED_TURN_VIEWPORT_OFFSET_PX.
+const VIEWPORT_TOP_OFFSET_PX = 0;
 const TASK_TOOL_NAME = 'Task';
 
 export interface VisibleTaskInfo {
@@ -30,6 +30,7 @@ export interface VisibleTaskInfo {
 interface UseVisibleTaskInfoOptions {
   scrollerRef: React.RefObject<HTMLElement | null>;
   virtualItems: VirtualItem[];
+  onScrollToOffset: (offset: number, behavior: ScrollBehavior) => void;
 }
 
 interface UseVisibleTaskInfoReturn {
@@ -74,7 +75,7 @@ function findTaskVirtualItems(virtualItems: VirtualItem[]): Array<{
 }
 
 export function useVisibleTaskInfo(options: UseVisibleTaskInfoOptions): UseVisibleTaskInfoReturn {
-  const { scrollerRef, virtualItems } = options;
+  const { scrollerRef, virtualItems, onScrollToOffset } = options;
   const [visibleTaskInfo, setVisibleTaskInfo] = useState<VisibleTaskInfo | null>(null);
   const lastVisibleRef = useRef<VisibleTaskInfo | null>(null);
   const taskItemsRef = useRef(findTaskVirtualItems(virtualItems));
@@ -176,8 +177,8 @@ export function useVisibleTaskInfo(options: UseVisibleTaskInfoOptions): UseVisib
     const elementRect = element.getBoundingClientRect();
     const offset = elementRect.top - scrollerRect.top - VIEWPORT_TOP_OFFSET_PX + scroller.scrollTop;
 
-    scroller.scrollTo({ top: offset, behavior: 'smooth' });
-  }, [visibleTaskInfo, scrollerRef]);
+    onScrollToOffset(offset, 'smooth');
+  }, [onScrollToOffset, visibleTaskInfo, scrollerRef]);
 
   return {
     visibleTaskInfo,

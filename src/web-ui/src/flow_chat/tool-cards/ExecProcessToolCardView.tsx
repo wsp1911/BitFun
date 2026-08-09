@@ -194,7 +194,12 @@ export const ExecProcessToolCardView: React.FC<ExecProcessToolCardViewProps> = (
   const commandRef = useRef<HTMLElement | null>(null);
   const outputRendererRef = useRef<TerminalOutputRendererHandle | null>(null);
   const [isPrimaryTextTruncated, setIsPrimaryTextTruncated] = useState(false);
-  const { cardRootRef, applyExpandedState } = useToolCardHeightContract({
+  const {
+    cardRootRef,
+    applyExpandedState,
+    requestAutoCollapse,
+    isAutoCollapseInstant,
+  } = useToolCardHeightContract({
     toolId,
     toolName: toolItem.toolName,
   });
@@ -230,13 +235,18 @@ export const ExecProcessToolCardView: React.FC<ExecProcessToolCardViewProps> = (
     const keepTailPreview = isCollapsedStatus(status) && beginCompletionPreview();
     const nextExpanded = getAutoExpandedStateForStatus(status, isLastItem, keepTailPreview);
     if (nextExpanded !== null) {
-      applyExecExpandedState(nextExpanded);
+      if (!nextExpanded) {
+        return requestAutoCollapse(isExpanded, setIsExpandedState);
+      }
+      applyExecExpandedState(true);
     }
   }, [
     applyExecExpandedState,
     beginCompletionPreview,
     isCompletionPreviewActive,
     isLastItem,
+    isExpanded,
+    requestAutoCollapse,
     status,
   ]);
 
@@ -517,6 +527,7 @@ export const ExecProcessToolCardView: React.FC<ExecProcessToolCardViewProps> = (
         errorContent={renderErrorContent()}
         isFailed={status === 'error'}
         requiresConfirmation={status === 'pending_confirmation'}
+        disableExpandAnimation={isAutoCollapseInstant}
       />
     </div>
   );

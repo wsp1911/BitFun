@@ -183,7 +183,7 @@ export function useFlowChatNavigation({
           return;
         }
 
-        element.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'auto' });
+        virtualListRef.current?.scrollFlowItemIntoView(focusItemId);
         element.classList.add('flowchat-flow-item--focused');
         window.setTimeout(() => element.classList.remove('flowchat-flow-item--focused'), 1600);
       };

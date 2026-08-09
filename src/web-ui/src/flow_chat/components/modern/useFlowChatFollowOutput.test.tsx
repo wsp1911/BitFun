@@ -5,6 +5,12 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useFlowChatFollowOutput } from './useFlowChatFollowOutput';
 
+const diagnosticsMocks = vi.hoisted(() => ({ trace: vi.fn() }));
+
+vi.mock('@/infrastructure/diagnostics/flowChatDiagnostics', () => ({
+  flowChatDiagnostics: diagnosticsMocks,
+}));
+
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
 type Controller = ReturnType<typeof useFlowChatFollowOutput>;
@@ -25,12 +31,14 @@ function Harness({
   isStreaming = true,
   scroller,
   scrollToTail,
+  setFollowingDesired = vi.fn(),
   onController,
 }: {
   latestTurnId: string;
   isStreaming?: boolean;
   scroller: HTMLElement;
   scrollToTail: (behavior: ScrollBehavior) => void;
+  setFollowingDesired?: (following: boolean, reason: string) => void;
   onController: (controller: Controller) => void;
 }) {
   const scrollerRef = React.useRef<HTMLElement | null>(scroller);
@@ -42,6 +50,11 @@ function Harness({
     isViewportActive: true,
     scrollerRef,
     scrollToTail,
+    correctToTail: () => {
+      scroller.scrollTop = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
+      return true;
+    },
+    setFollowingDesired,
   });
   onController(controller);
   return <div data-following={String(controller.isFollowingOutput)} />;
@@ -59,6 +72,7 @@ describe('useFlowChatFollowOutput', () => {
     document.body.append(container, scroller);
     root = createRoot(container);
     controller = null;
+    diagnosticsMocks.trace.mockClear();
     vi.stubGlobal('requestAnimationFrame', vi.fn(() => 1));
     vi.stubGlobal('cancelAnimationFrame', vi.fn());
   });
@@ -130,6 +144,10 @@ describe('useFlowChatFollowOutput', () => {
     act(() => controller?.handleUserScrollIntent());
     expect(controller?.isFollowingOutput).toBe(false);
     expect(cancelAnimationFrame).toHaveBeenCalled();
+    expect(diagnosticsMocks.trace).toHaveBeenCalledWith(expect.objectContaining({
+      hypothesis: 'FOLLOW',
+      message: 'Follow output ownership exited',
+    }));
   });
 
   it('keeps following when layout growth moves the natural tail', () => {
@@ -170,6 +188,10 @@ describe('useFlowChatFollowOutput', () => {
 
     expect(scroller.scrollTop).toBe(1300);
     expect(controller?.isFollowingOutput).toBe(true);
+    expect(diagnosticsMocks.trace).toHaveBeenCalledWith(expect.objectContaining({
+      hypothesis: 'FOLLOW',
+      message: 'Follow output corrected the natural tail',
+    }));
   });
 
   it('uses smooth behavior only for an explicit jump to latest', () => {
@@ -186,5 +208,21 @@ describe('useFlowChatFollowOutput', () => {
     });
     act(() => controller?.enterFollowOutput('jump-to-latest'));
     expect(scrollToTail).toHaveBeenCalledWith('smooth');
+  });
+
+  it('publishes follow intent separately from movement requests', () => {
+    const setFollowingDesired = vi.fn();
+    act(() => root.render(
+      <Harness
+        latestTurnId="turn-1"
+        scroller={scroller}
+        scrollToTail={vi.fn()}
+        setFollowingDesired={setFollowingDesired}
+        onController={next => { controller = next; }}
+      />,
+    ));
+    expect(setFollowingDesired).toHaveBeenCalledWith(true, 'streaming-resumed');
+    act(() => controller?.handleUserScrollIntent());
+    expect(setFollowingDesired).toHaveBeenCalledWith(false, 'user-scroll');
   });
 });

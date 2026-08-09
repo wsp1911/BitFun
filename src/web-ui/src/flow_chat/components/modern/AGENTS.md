@@ -14,16 +14,21 @@ Also follow the repository and Web UI instructions in the parent guides.
 
 ## Current Contract
 
-- FlowChat uses the natural browser scroll range.
-- Do not add synthetic tail space, bottom reservations, sticky Turn modes,
-  pre-collapse compensation, or persistent element-anchor guards.
-- `useFlowChatFollowOutput` is the only continuous outer viewport writer.
+- FlowChat uses the natural browser scroll range after one bounded Turn stage.
+- The only allowed synthetic tail space is the new-live-Turn stage owned by
+  `VirtualMessageList`: it is at most one viewport tall, replaces the previous
+  Turn stage, and decreases by a geometry high-water mark without replenishing.
+- Do not add other bottom reservations, sticky Turn modes, pre-collapse
+  compensation, or persistent element-anchor guards.
+- `useFlowChatViewportCoordinator` is the only module allowed to issue outer
+  viewport or Virtuoso movement commands. Follow and navigation are clients.
 - Keep Virtuoso `followOutput={false}`.
 - One-shot Turn/search/history navigation remains inside `VirtualMessageList`.
-- Tool cards reflow naturally and dispatch only `tool-card-toggle` after an
-  expanded-state change so Virtuoso can remeasure.
-- Footer height represents only the current input-stack layout and real footer
-  content such as history state and `RuntimeStatusSlot`.
+- Automatic tool/thinking-card collapse is requested through the FlowChat
+  coordinator and executes only when the card is fully outside the viewport.
+  Manual collapse remains immediate and animated.
+- Footer height represents the current input-stack layout plus the single Turn
+  stage and real footer content such as history state and `RuntimeStatusSlot`.
 - Stable virtual-item keys and projection identity must be preserved.
 
 ## Verification

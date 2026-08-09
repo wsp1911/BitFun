@@ -1,10 +1,8 @@
 /**
  * Virtualized FlowChat transcript with natural browser scroll range.
  *
- * The list never manufactures tail space for turn alignment or layout
- * preservation. Navigation is best-effort within the physical content range,
- * card collapses reflow naturally, and useFlowChatFollowOutput is the only
- * continuous writer that follows streaming output.
+ * The list uses one bounded, monotonic Turn stage budget for the initial
+ * placement of a new live Turn. All later geometry remains natural.
  */
 
 import React, {
@@ -50,6 +48,16 @@ import {
 import { RuntimeStatusSlot } from './RuntimeStatusSlot';
 import { StickyTaskIndicator } from '../StickyTaskIndicator';
 import { useFlowChatFollowOutput } from './useFlowChatFollowOutput';
+import { useFlowChatViewportCoordinator } from './useFlowChatViewportCoordinator';
+import { FlowChatAutoCollapseProvider } from './FlowChatAutoCollapseContext';
+import {
+  calibrateFlowChatTurnStage,
+  consumeFlowChatTurnStage,
+  createProvisionalFlowChatTurnStage,
+  getFlowChatTurnStageRemainingBucket,
+  type FlowChatTurnStageState,
+} from './flowChatTurnStage';
+import { flowChatDiagnostics } from '@/infrastructure/diagnostics/flowChatDiagnostics';
 import { VirtualItemRenderer } from './VirtualItemRenderer';
 import { getLeadingVirtualItemIndexDelta } from './virtualMessageListLayout';
 import { resolveVisibleFlowChatTurnIds } from './flowChatVisibleTurns';
@@ -89,6 +97,7 @@ export interface HistoryWindowBoundaryIntentOptions {
 export interface VirtualMessageListRef {
   scrollToTurn: (turnIndex: number) => void;
   scrollToIndex: (index: number) => void;
+  scrollFlowItemIntoView: (itemId: string) => boolean;
   scrollToSearchMatch: (target: {
     virtualItemIndex: number;
     query: string;
@@ -131,6 +140,7 @@ export interface VirtualMessageListProps {
 
 type FlowChatVirtuosoContext = {
   bottomLayoutInsetPx: number;
+  stageSpacePx: number;
   previousHistoryBoundaryStatusNode: React.ReactNode;
   nextHistoryBoundaryStatusNode: React.ReactNode;
   runtimeStatusSessionId: string | null;
@@ -147,14 +157,7 @@ type HistoryPrependAnchor = {
 };
 
 const FlowChatVirtuosoHeader = ({ context }: ContextProp<FlowChatVirtuosoContext>) => (
-  <>
-    <div
-      className="message-list-header"
-      data-bf-component="virtual-message-list"
-      data-bf-part="header"
-    />
-    {context.previousHistoryBoundaryStatusNode}
-  </>
+  <>{context.previousHistoryBoundaryStatusNode}</>
 );
 
 const FlowChatVirtuosoFooter = ({ context }: ContextProp<FlowChatVirtuosoContext>) => (
@@ -163,8 +166,8 @@ const FlowChatVirtuosoFooter = ({ context }: ContextProp<FlowChatVirtuosoContext
     data-bf-component="virtual-message-list"
     data-bf-part="footer"
     style={{
-      height: `${context.bottomLayoutInsetPx}px`,
-      minHeight: `${context.bottomLayoutInsetPx}px`,
+      height: `${context.bottomLayoutInsetPx + context.stageSpacePx}px`,
+      minHeight: `${context.bottomLayoutInsetPx + context.stageSpacePx}px`,
     }}
   >
     {context.nextHistoryBoundaryStatusNode}
@@ -257,6 +260,14 @@ const VirtualMessageListSession = forwardRef<VirtualMessageListRef, VirtualMessa
   const scrollerElementRef = useRef<HTMLElement | null>(null);
   const [scrollerElement, setScrollerElement] = useState<HTMLElement | null>(null);
   const [isAtBottom, setIsAtBottom] = useState(true);
+  const [turnStage, setTurnStage] = useState<FlowChatTurnStageState | null>(null);
+  const [isTurnStageCalibrating, setIsTurnStageCalibrating] = useState(false);
+  const turnStageRef = useRef<FlowChatTurnStageState | null>(null);
+  const isTurnStageCalibratingRef = useRef(false);
+  const virtualItemsRef = useRef(virtualItems);
+  const stageRemainingBucketRef = useRef<number | null>(null);
+  const previousStageTurnIdRef = useRef(latestTurnId);
+  const previousStageSessionIdRef = useRef(activeSessionId);
   const preparedTurnNavigationRef = useRef<PreparedTurnNavigation | null>(null);
   const historyPrependAnchorRef = useRef<HistoryPrependAnchor | null>(null);
   const boundaryRequestRef = useRef<Record<SessionHistoryWindowDirection, Promise<void> | null>>({
@@ -269,6 +280,7 @@ const VirtualMessageListSession = forwardRef<VirtualMessageListRef, VirtualMessa
   });
   const searchNavigationRequestIdRef = useRef(0);
   const visibleTurnUpdateFrameRef = useRef<number | null>(null);
+  const resumeFollowAfterStageRef = useRef<() => void>(() => {});
 
   const virtuosoIndexStateRef = useRef({
     sessionId: activeSessionId,
@@ -315,24 +327,88 @@ const VirtualMessageListSession = forwardRef<VirtualMessageListRef, VirtualMessa
   const isInputExpanded = useChatInputState(state => state.isExpanded);
   const inputHeight = useChatInputState(state => state.inputHeight);
   const bottomLayoutInsetPx = computeFlowChatInputStackFooterPx(inputHeight);
+  turnStageRef.current = turnStage;
+  isTurnStageCalibratingRef.current = isTurnStageCalibrating;
+  virtualItemsRef.current = virtualItems;
+
+  const hasPendingTurnStageCalibration = Boolean(
+    presentationMode === 'tail'
+    && viewportMode === 'live-tail'
+    && latestTurnId
+    && latestTurnId !== previousStageTurnIdRef.current
+    && virtualItems.length > 0,
+  );
+  const getLastVirtualItemIndex = useCallback(
+    () => Math.max(0, virtualItemsRef.current.length - 1),
+    [],
+  );
+
+  const viewportCoordinator = useFlowChatViewportCoordinator({
+    activeSessionId,
+    scrollerRef: scrollerElementRef,
+    virtuosoRef,
+    getLastItemIndex: getLastVirtualItemIndex,
+    isTurnPlacementPending: hasPendingTurnStageCalibration,
+  });
+
+  const updateTurnStage = useCallback(() => {
+    const scroller = scrollerElementRef.current;
+    const stage = turnStageRef.current;
+    if (!scroller || !stage || isTurnStageCalibratingRef.current) return;
+    const next = consumeFlowChatTurnStage(
+      stage,
+      scroller.scrollHeight,
+      bottomLayoutInsetPx,
+    );
+    if (next !== stage) {
+      turnStageRef.current = next;
+      setTurnStage(next);
+      const previousBucket = stageRemainingBucketRef.current;
+      const nextBucket = getFlowChatTurnStageRemainingBucket(next);
+      if (previousBucket !== nextBucket) {
+        stageRemainingBucketRef.current = nextBucket;
+        flowChatDiagnostics.trace({
+          hypothesis: 'STAGE',
+          location: 'VirtualMessageList.updateTurnStage',
+          message: nextBucket === 0
+            ? 'Turn stage exhausted'
+            : 'Turn stage consumption crossed a milestone',
+          data: () => ({
+            sessionId: activeSessionId,
+            turnId: next.turnId,
+            previousBucket,
+            nextBucket,
+            initialPx: next.initialPx,
+            remainingPx: next.remainingPx,
+            consumedPx: next.initialPx - next.remainingPx,
+            baselineNaturalExtentPx: next.baselineNaturalExtentPx,
+            maxNaturalExtentPx: next.maxNaturalExtentPx,
+            scrollHeight: scroller.scrollHeight,
+            clientHeight: scroller.clientHeight,
+            bottomLayoutInsetPx,
+          }),
+        });
+      }
+      if (next.remainingPx <= 0) {
+        requestAnimationFrame(() => {
+          if (turnStageRef.current?.turnId === next.turnId && turnStageRef.current.remainingPx <= 0) {
+            viewportCoordinator.finishStageConsumption('stage-exhausted-after-footer-commit');
+            resumeFollowAfterStageRef.current();
+          }
+        });
+      }
+    }
+  }, [activeSessionId, bottomLayoutInsetPx, viewportCoordinator]);
 
   const scrollToTail = useCallback((behavior: ScrollBehavior) => {
-    const scroller = scrollerElementRef.current;
-    if (scroller) {
-      scroller.scrollTo({
-        top: Math.max(0, scroller.scrollHeight - scroller.clientHeight),
-        behavior,
-      });
-      return;
-    }
-    virtuosoRef.current?.scrollToIndex({
-      index: Math.max(0, virtualItems.length - 1),
-      align: 'end',
-      behavior: normalizeVirtuosoBehavior(behavior),
-    });
-  }, [virtualItems.length]);
+    viewportCoordinator.scrollToTail('following', behavior);
+  }, [viewportCoordinator]);
+  const correctToTail = useCallback(() => (
+    viewportCoordinator.scrollToTail('following', 'auto')
+  ), [viewportCoordinator]);
 
   const {
+    isFollowingOutput,
     enterFollowOutput,
     exitFollowOutput,
     scheduleFollowToLatest,
@@ -346,12 +422,16 @@ const VirtualMessageListSession = forwardRef<VirtualMessageListRef, VirtualMessa
     isViewportActive,
     scrollerRef: scrollerElementRef,
     scrollToTail,
+    correctToTail,
+    setFollowingDesired: viewportCoordinator.setFollowingDesired,
   });
+  resumeFollowAfterStageRef.current = scheduleFollowToLatest;
 
   const notifyUserScrollIntent = useCallback(() => {
+    viewportCoordinator.handleUserIntent('user-scroll');
     handleUserScrollIntent();
     onUserScrollIntent?.();
-  }, [handleUserScrollIntent, onUserScrollIntent]);
+  }, [handleUserScrollIntent, onUserScrollIntent, viewportCoordinator]);
 
   const updateVisibleTurnInfoFromViewport = useCallback(() => {
     const scroller = scrollerElementRef.current;
@@ -449,6 +529,7 @@ const VirtualMessageListSession = forwardRef<VirtualMessageListRef, VirtualMessa
   useEffect(() => {
     if (!scrollerElement) return;
     const observer = new ResizeObserver(() => {
+      updateTurnStage();
       scheduleFollowToLatest();
       scheduleVisibleTurnInfoUpdate();
     });
@@ -456,7 +537,7 @@ const VirtualMessageListSession = forwardRef<VirtualMessageListRef, VirtualMessa
     if (content) observer.observe(content);
     observer.observe(scrollerElement);
     return () => observer.disconnect();
-  }, [scheduleFollowToLatest, scheduleVisibleTurnInfoUpdate, scrollerElement]);
+  }, [scheduleFollowToLatest, scheduleVisibleTurnInfoUpdate, scrollerElement, updateTurnStage]);
 
   const getRenderedUserMessageElement = useCallback((turnId: string) => (
     Array.from(
@@ -465,6 +546,256 @@ const VirtualMessageListSession = forwardRef<VirtualMessageListRef, VirtualMessa
       ) ?? [],
     ).find(element => element.dataset.turnId === turnId) ?? null
   ), []);
+
+  useEffect(() => {
+    const setCalibrationActive = (active: boolean) => {
+      isTurnStageCalibratingRef.current = active;
+      setIsTurnStageCalibrating(active);
+    };
+
+    if (previousStageSessionIdRef.current !== activeSessionId) {
+      const previousStage = turnStageRef.current;
+      if (previousStage) {
+        flowChatDiagnostics.trace({
+          hypothesis: 'STAGE',
+          location: 'VirtualMessageList.turnStageEffect',
+          message: 'Turn stage cleared for a session change',
+          data: () => ({
+            previousSessionId: previousStageSessionIdRef.current,
+            nextSessionId: activeSessionId,
+            turnId: previousStage.turnId,
+            remainingPx: previousStage.remainingPx,
+          }),
+        });
+      }
+      previousStageSessionIdRef.current = activeSessionId;
+      previousStageTurnIdRef.current = latestTurnId;
+      turnStageRef.current = null;
+      stageRemainingBucketRef.current = null;
+      setCalibrationActive(false);
+      setTurnStage(null);
+      return;
+    }
+
+    const previousTurnId = previousStageTurnIdRef.current;
+    if (presentationMode !== 'tail' || viewportMode !== 'live-tail') {
+      previousStageTurnIdRef.current = latestTurnId;
+      setCalibrationActive(false);
+      if (turnStageRef.current) {
+        const previousStage = turnStageRef.current;
+        flowChatDiagnostics.trace({
+          hypothesis: 'STAGE',
+          location: 'VirtualMessageList.turnStageEffect',
+          message: 'Turn stage cleared outside the live tail viewport',
+          data: () => ({
+            sessionId: activeSessionId,
+            turnId: previousStage.turnId,
+            remainingPx: previousStage.remainingPx,
+            presentationMode,
+            viewportMode,
+          }),
+        });
+        turnStageRef.current = null;
+        stageRemainingBucketRef.current = null;
+        setTurnStage(null);
+      }
+      return;
+    }
+    if (!latestTurnId || latestTurnId === previousTurnId || virtualItemsRef.current.length === 0) return;
+
+    const scroller = scrollerElementRef.current;
+    if (!scroller) return;
+    viewportCoordinator.beginTurnPlacement('new-live-turn');
+    setCalibrationActive(true);
+    let frame: number | null = null;
+    let attempts = 0;
+    let cancelled = false;
+
+    const finishCalibration = () => {
+      if (cancelled) return;
+      setCalibrationActive(false);
+    };
+
+    const createStage = () => {
+      attempts += 1;
+      const userMessage = getRenderedUserMessageElement(latestTurnId);
+      if (!userMessage) {
+        if (attempts < SEARCH_NAVIGATION_MAX_ATTEMPTS) {
+          frame = requestAnimationFrame(createStage);
+        } else {
+          flowChatDiagnostics.trace({
+            hypothesis: 'STAGE',
+            location: 'VirtualMessageList.createTurnStage',
+            message: 'Turn stage creation abandoned because the user message was not rendered',
+            data: () => ({
+              sessionId: activeSessionId,
+              turnId: latestTurnId,
+              attempts,
+              virtualItemCount: virtualItemsRef.current.length,
+            }),
+          });
+          previousStageTurnIdRef.current = latestTurnId;
+          viewportCoordinator.finishStageConsumption('turn-placement-abandoned');
+          finishCalibration();
+        }
+        return;
+      }
+      const previousStageRemainingPx = turnStageRef.current?.remainingPx ?? 0;
+      const provisional = createProvisionalFlowChatTurnStage({
+        turnId: latestTurnId,
+        viewportHeightPx: scroller.clientHeight,
+      });
+      turnStageRef.current = provisional;
+      stageRemainingBucketRef.current = getFlowChatTurnStageRemainingBucket(provisional);
+      setTurnStage(provisional);
+      flowChatDiagnostics.trace({
+        hypothesis: 'STAGE',
+        location: 'VirtualMessageList.createTurnStage',
+        message: 'Provisional Turn stage created for a new live Turn',
+        data: () => ({
+          sessionId: activeSessionId,
+          turnId: latestTurnId,
+          attempts,
+          provisionalPx: provisional.initialPx,
+          previousStageRemainingPx,
+          scrollTopBeforePlacement: scroller.scrollTop,
+          scrollHeight: scroller.scrollHeight,
+          clientHeight: scroller.clientHeight,
+          bottomLayoutInsetPx,
+          userMessageTopBeforePlacement:
+            userMessage.getBoundingClientRect().top - scroller.getBoundingClientRect().top,
+        }),
+      });
+
+      frame = requestAnimationFrame(() => {
+        if (viewportCoordinator.getOwner() !== 'turn-placement') {
+          if (turnStageRef.current?.turnId === latestTurnId) {
+            turnStageRef.current = null;
+            stageRemainingBucketRef.current = null;
+            setTurnStage(null);
+          }
+          previousStageTurnIdRef.current = latestTurnId;
+          finishCalibration();
+          return;
+        }
+        const targetIndex = virtualItemsRef.current.findIndex(
+          item => item.type === 'user-message' && item.turnId === latestTurnId,
+        );
+        if (targetIndex >= 0) {
+          viewportCoordinator.scrollToIndex('turn-placement', {
+            index: targetIndex,
+            align: 'start',
+            behavior: 'auto',
+          });
+        }
+        frame = requestAnimationFrame(() => {
+          if (viewportCoordinator.getOwner() !== 'turn-placement') {
+            if (turnStageRef.current?.turnId === latestTurnId) {
+              turnStageRef.current = null;
+              stageRemainingBucketRef.current = null;
+              setTurnStage(null);
+            }
+            previousStageTurnIdRef.current = latestTurnId;
+            finishCalibration();
+            return;
+          }
+          const alignedUserMessage = getRenderedUserMessageElement(latestTurnId);
+          if (alignedUserMessage) {
+            const offset = alignedUserMessage.getBoundingClientRect().top
+              - scroller.getBoundingClientRect().top;
+            if (Math.abs(offset) > 0.5) {
+              viewportCoordinator.adjustScrollTop('turn-placement', offset);
+            }
+          }
+
+          frame = requestAnimationFrame(() => {
+            if (viewportCoordinator.getOwner() !== 'turn-placement') {
+              if (turnStageRef.current?.turnId === latestTurnId) {
+                turnStageRef.current = null;
+                stageRemainingBucketRef.current = null;
+                setTurnStage(null);
+              }
+              previousStageTurnIdRef.current = latestTurnId;
+              finishCalibration();
+              return;
+            }
+            const currentStage = turnStageRef.current;
+            if (!currentStage || currentStage.turnId !== latestTurnId) {
+              viewportCoordinator.finishStageConsumption('turn-placement-cancelled');
+              finishCalibration();
+              return;
+            }
+
+            const maxScrollTop = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
+            const removableWithoutClamp = Math.max(0, maxScrollTop - scroller.scrollTop);
+            const finalRemainingPx = Math.max(
+              0,
+              currentStage.remainingPx - removableWithoutClamp,
+            );
+            const calibrated = calibrateFlowChatTurnStage({
+              stage: currentStage,
+              remainingPx: finalRemainingPx,
+              scrollHeightPx: scroller.scrollHeight,
+              bottomLayoutInsetPx,
+            });
+            const placedUserMessage = getRenderedUserMessageElement(latestTurnId);
+            const placedScrollerRect = scroller.getBoundingClientRect();
+
+            turnStageRef.current = calibrated;
+            stageRemainingBucketRef.current = getFlowChatTurnStageRemainingBucket(calibrated);
+            previousStageTurnIdRef.current = latestTurnId;
+            setTurnStage(calibrated);
+            if (calibrated.remainingPx > 0) {
+              viewportCoordinator.beginStageConsumption('turn-stage-calibrated');
+            } else {
+              viewportCoordinator.finishStageConsumption('turn-stage-empty-after-calibration');
+              requestAnimationFrame(() => resumeFollowAfterStageRef.current());
+            }
+            flowChatDiagnostics.trace({
+              hypothesis: 'STAGE',
+              location: 'VirtualMessageList.createTurnStage',
+              message: 'Turn stage alignment calibrated',
+              data: () => ({
+                sessionId: activeSessionId,
+                turnId: latestTurnId,
+                provisionalPx: provisional.initialPx,
+                finalRemainingPx: calibrated.remainingPx,
+                removedPx: provisional.initialPx - calibrated.remainingPx,
+                removableWithoutClamp,
+                baselineNaturalExtentPx: calibrated.baselineNaturalExtentPx,
+                userMessageOffsetFromViewportTop: placedUserMessage
+                  ? placedUserMessage.getBoundingClientRect().top - placedScrollerRect.top
+                  : null,
+                scrollTop: scroller.scrollTop,
+                maxScrollTop,
+                scrollHeight: scroller.scrollHeight,
+                clientHeight: scroller.clientHeight,
+                bottomLayoutInsetPx,
+                nextViewportOwner: calibrated.remainingPx > 0
+                  ? 'stage-consuming'
+                  : 'following',
+              }),
+            });
+            finishCalibration();
+          });
+        });
+      });
+    };
+    frame = requestAnimationFrame(createStage);
+    return () => {
+      cancelled = true;
+      if (frame !== null) cancelAnimationFrame(frame);
+      isTurnStageCalibratingRef.current = false;
+    };
+  }, [
+    activeSessionId,
+    bottomLayoutInsetPx,
+    getRenderedUserMessageElement,
+    latestTurnId,
+    presentationMode,
+    viewportCoordinator,
+    viewportMode,
+  ]);
 
   const navigateToTurnWithStatus = useCallback((
     turnId: string,
@@ -475,13 +806,14 @@ const VirtualMessageListSession = forwardRef<VirtualMessageListRef, VirtualMessa
     ));
     if (targetIndex < 0 || !virtuosoRef.current) return 'rejected';
     exitFollowOutput('scroll-to-turn');
-    virtuosoRef.current.scrollToIndex({
+    viewportCoordinator.beginExplicitNavigation('scroll-to-turn');
+    viewportCoordinator.scrollToIndex('explicit-navigation', {
       index: targetIndex,
       align: 'start',
       behavior: normalizeVirtuosoBehavior(options?.behavior ?? 'auto'),
     });
     return 'settled';
-  }, [exitFollowOutput, virtualItems]);
+  }, [exitFollowOutput, viewportCoordinator, virtualItems]);
 
   const navigateToTurn = useCallback((turnId: string, options?: TurnNavigationOptions) => (
     navigateToTurnWithStatus(turnId, options) !== 'rejected'
@@ -493,12 +825,13 @@ const VirtualMessageListSession = forwardRef<VirtualMessageListRef, VirtualMessa
   ): FlowChatTurnNavigationStatus => {
     if (!turnId || !activeSessionId) return 'rejected';
     exitFollowOutput('scroll-to-turn');
+    viewportCoordinator.beginExplicitNavigation('prepare-turn-navigation');
     preparedTurnNavigationRef.current = {
       turnId,
       behavior: options?.behavior ?? 'auto',
     };
     return 'pending';
-  }, [activeSessionId, exitFollowOutput]);
+  }, [activeSessionId, exitFollowOutput, viewportCoordinator]);
 
   useLayoutEffect(() => {
     const prepared = preparedTurnNavigationRef.current;
@@ -515,8 +848,30 @@ const VirtualMessageListSession = forwardRef<VirtualMessageListRef, VirtualMessa
   const scrollToIndex = useCallback((index: number) => {
     if (!virtuosoRef.current || index < 0 || index >= virtualItems.length) return;
     exitFollowOutput('scroll-to-index');
-    virtuosoRef.current.scrollToIndex({ index, align: 'center', behavior: 'auto' });
-  }, [exitFollowOutput, virtualItems.length]);
+    viewportCoordinator.beginExplicitNavigation('scroll-to-index');
+    viewportCoordinator.scrollToIndex('explicit-navigation', {
+      index,
+      align: 'center',
+      behavior: 'auto',
+    });
+  }, [exitFollowOutput, viewportCoordinator, virtualItems.length]);
+
+  const scrollFlowItemIntoView = useCallback((itemId: string) => {
+    const scroller = scrollerElementRef.current;
+    const element = scroller?.querySelector<HTMLElement>(
+      `[data-flow-item-id="${CSS.escape(itemId)}"]`,
+    );
+    if (!scroller || !element) return false;
+    exitFollowOutput('scroll-to-index');
+    viewportCoordinator.beginExplicitNavigation('focus-flow-item');
+    const scrollerRect = scroller.getBoundingClientRect();
+    const elementRect = element.getBoundingClientRect();
+    return viewportCoordinator.setScrollTop(
+      'explicit-navigation',
+      scroller.scrollTop + elementRect.top - scrollerRect.top
+        - Math.max(0, (scroller.clientHeight - elementRect.height) / 2),
+    );
+  }, [exitFollowOutput, viewportCoordinator]);
 
   const scrollToTurnEnd = useCallback((turnId: string) => {
     let targetIndex = -1;
@@ -528,9 +883,14 @@ const VirtualMessageListSession = forwardRef<VirtualMessageListRef, VirtualMessa
     }
     if (targetIndex < 0 || !virtuosoRef.current) return false;
     exitFollowOutput('scroll-to-turn');
-    virtuosoRef.current.scrollToIndex({ index: targetIndex, align: 'end', behavior: 'auto' });
+    viewportCoordinator.beginExplicitNavigation('scroll-to-turn-end');
+    viewportCoordinator.scrollToIndex('explicit-navigation', {
+      index: targetIndex,
+      align: 'end',
+      behavior: 'auto',
+    });
     return true;
-  }, [exitFollowOutput, virtualItems]);
+  }, [exitFollowOutput, viewportCoordinator, virtualItems]);
 
   const isTurnRenderedInViewport = useCallback((turnId: string) => {
     const scroller = scrollerElementRef.current;
@@ -563,8 +923,9 @@ const VirtualMessageListSession = forwardRef<VirtualMessageListRef, VirtualMessa
   }) => {
     clearSearchMatch();
     exitFollowOutput('scroll-to-index');
+    viewportCoordinator.beginExplicitNavigation('search-navigation');
     const requestId = searchNavigationRequestIdRef.current;
-    virtuosoRef.current?.scrollToIndex({
+    viewportCoordinator.scrollToIndex('explicit-navigation', {
       index: target.virtualItemIndex,
       align: 'center',
       behavior: 'auto',
@@ -599,17 +960,17 @@ const VirtualMessageListSession = forwardRef<VirtualMessageListRef, VirtualMessa
       setFlowChatSearchHighlight(range, ranges.filter((_, index) => index !== rangeIndex));
       const rangeRect = range.getBoundingClientRect();
       const scrollerRect = scroller.getBoundingClientRect();
-      scroller.scrollTop = Math.max(
+      viewportCoordinator.setScrollTop('explicit-navigation', Math.max(
         0,
         Math.min(
           scroller.scrollHeight - scroller.clientHeight,
           scroller.scrollTop + rangeRect.top - scrollerRect.top -
             Math.max(0, (scroller.clientHeight - rangeRect.height) / 2),
         ),
-      );
+      ));
     };
     requestAnimationFrame(resolve);
-  }, [clearSearchMatch, exitFollowOutput]);
+  }, [clearSearchMatch, exitFollowOutput, viewportCoordinator]);
 
   useEffect(() => () => setFlowChatSearchHighlight(null), []);
 
@@ -638,9 +999,10 @@ const VirtualMessageListSession = forwardRef<VirtualMessageListRef, VirtualMessa
     if (!element) return;
     const correction = element.getBoundingClientRect().top -
       scroller.getBoundingClientRect().top - anchor.offsetFromScrollerTop;
-    scroller.scrollTop += correction;
+    viewportCoordinator.beginExplicitNavigation('history-prepend-anchor');
+    viewportCoordinator.adjustScrollTop('explicit-navigation', correction);
     historyPrependAnchorRef.current = null;
-  }, [getRenderedUserMessageElement, virtualItems]);
+  }, [getRenderedUserMessageElement, viewportCoordinator, virtualItems]);
 
   const requestHistoryBoundary = useCallback((direction: SessionHistoryWindowDirection) => {
     if (
@@ -704,6 +1066,7 @@ const VirtualMessageListSession = forwardRef<VirtualMessageListRef, VirtualMessa
   useImperativeHandle(ref, () => ({
     scrollToTurn,
     scrollToIndex,
+    scrollFlowItemIntoView,
     scrollToSearchMatch,
     clearSearchMatch,
     scrollToPhysicalBottom,
@@ -722,6 +1085,7 @@ const VirtualMessageListSession = forwardRef<VirtualMessageListRef, VirtualMessa
     navigateToTurnWithStatus,
     prepareTurnNavigation,
     scrollToIndex,
+    scrollFlowItemIntoView,
     scrollToLatestEndPosition,
     scrollToPhysicalBottom,
     scrollToSearchMatch,
@@ -743,9 +1107,15 @@ const VirtualMessageListSession = forwardRef<VirtualMessageListRef, VirtualMessa
       visibleTurnInfo,
       onJumpToCurrentTurn: handleJumpToCurrentTurn,
     });
+  const handleScrollToTaskOffset = useCallback((offset: number, behavior: ScrollBehavior) => {
+    exitFollowOutput('scroll-to-index');
+    viewportCoordinator.beginExplicitNavigation('scroll-to-task');
+    viewportCoordinator.setScrollTop('explicit-navigation', offset, behavior);
+  }, [exitFollowOutput, viewportCoordinator]);
   const { visibleTaskInfo, scrollToTask } = useVisibleTaskInfo({
     scrollerRef: scrollerElementRef,
     virtualItems,
+    onScrollToOffset: handleScrollToTaskOffset,
   });
 
   const previousHistoryBoundaryStatusNode = useMemo(() => (
@@ -768,10 +1138,11 @@ const VirtualMessageListSession = forwardRef<VirtualMessageListRef, VirtualMessa
   ), [historyBoundaryState.after, presentationMode, t]);
   const virtuosoContext = useMemo<FlowChatVirtuosoContext>(() => ({
     bottomLayoutInsetPx,
+    stageSpacePx: turnStage?.remainingPx ?? 0,
     previousHistoryBoundaryStatusNode,
     nextHistoryBoundaryStatusNode,
     runtimeStatusSessionId: activeSessionId,
-  }), [activeSessionId, bottomLayoutInsetPx, nextHistoryBoundaryStatusNode, previousHistoryBoundaryStatusNode]);
+  }), [activeSessionId, bottomLayoutInsetPx, nextHistoryBoundaryStatusNode, previousHistoryBoundaryStatusNode, turnStage?.remainingPx]);
   const computeVirtuosoItemKey = useCallback((_: number, item: VirtualItem) => (
     `${activeSessionId ?? 'no-active-session'}:${getVirtualItemStableKey(item)}`
   ), [activeSessionId]);
@@ -805,6 +1176,14 @@ const VirtualMessageListSession = forwardRef<VirtualMessageListRef, VirtualMessa
       data-viewport-mode={viewportMode}
       data-streaming-output={isStreamingOutput ? 'true' : 'false'}
     >
+      <FlowChatAutoCollapseProvider
+        scrollerRef={scrollerElementRef}
+        isFollowingOutput={isFollowingOutput}
+        stageSpacePx={turnStage?.remainingPx ?? 0}
+        bottomLayoutInsetPx={bottomLayoutInsetPx}
+        sessionId={activeSessionId}
+        isSuspended={isTurnStageCalibrating || hasPendingTurnStageCalibration}
+      >
       <Virtuoso
         key={activeSessionId ?? 'no-active-session'}
         ref={virtuosoRef}
@@ -824,6 +1203,7 @@ const VirtualMessageListSession = forwardRef<VirtualMessageListRef, VirtualMessa
         context={virtuosoContext}
         components={FLOW_CHAT_VIRTUOSO_COMPONENTS}
       />
+      </FlowChatAutoCollapseProvider>
 
       <ScrollToTurnHeaderButton
         visible={shouldShowTurnHeaderButton}

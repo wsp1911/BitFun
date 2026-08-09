@@ -47,7 +47,12 @@ export const ModelThinkingDisplay: React.FC<ModelThinkingDisplayProps> = ({
 
   const [isExpanded, setIsExpanded] = useState(shouldDefaultExpanded);
   const userToggledRef = useRef(false);
-  const { cardRootRef, applyExpandedState } = useToolCardHeightContract({
+  const {
+    cardRootRef,
+    applyExpandedState,
+    requestAutoCollapse,
+    isAutoCollapseInstant,
+  } = useToolCardHeightContract({
     toolId: thinkingItem.id,
     toolName: 'thinking',
   });
@@ -55,9 +60,12 @@ export const ModelThinkingDisplay: React.FC<ModelThinkingDisplayProps> = ({
   useLayoutEffect(() => {
     if (userToggledRef.current) return;
     if (isExpanded !== shouldDefaultExpanded) {
-      applyExpandedState(isExpanded, shouldDefaultExpanded, setIsExpanded);
+      if (!shouldDefaultExpanded) {
+        return requestAutoCollapse(isExpanded, setIsExpanded);
+      }
+      applyExpandedState(isExpanded, true, setIsExpanded);
     }
-  }, [applyExpandedState, isExpanded, shouldDefaultExpanded]);
+  }, [applyExpandedState, isExpanded, requestAutoCollapse, shouldDefaultExpanded]);
 
   // Keep rendering the typewriter output while it drains after the stream
   // ends. Snapping to full `content` here would make the drain invisible
@@ -259,6 +267,7 @@ export const ModelThinkingDisplay: React.FC<ModelThinkingDisplayProps> = ({
         className={[
           'thinking-expand-container',
           isExpanded ? 'thinking-expand-container--open' : '',
+          isAutoCollapseInstant ? 'thinking-expand-container--instant' : '',
         ].filter(Boolean).join(' ')}
         data-bf-component="model-thinking-display"
         data-bf-part="expandContainer"

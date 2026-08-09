@@ -289,6 +289,8 @@ export const TerminalToolCard: React.FC<TerminalToolCardProps> = ({
   const {
     cardRootRef,
     applyExpandedState,
+    requestAutoCollapse,
+    isAutoCollapseInstant,
   } = useToolCardHeightContract({
     toolId,
     toolName: toolItem.toolName,
@@ -334,13 +336,18 @@ export const TerminalToolCard: React.FC<TerminalToolCardProps> = ({
     const keepTailPreview = isCollapsedTerminalStatus(status) && beginCompletionPreview();
     const nextExpanded = getAutoExpandedStateForTerminalStatus(status, isLastItem, keepTailPreview);
     if (nextExpanded !== null) {
-      applyTerminalExpandedState(nextExpanded);
+      if (!nextExpanded) {
+        return requestAutoCollapse(isExpanded, setIsExpandedState);
+      }
+      applyTerminalExpandedState(true);
     }
   }, [
     applyTerminalExpandedState,
     beginCompletionPreview,
     isCompletionPreviewActive,
     isLastItem,
+    isExpanded,
+    requestAutoCollapse,
     status,
   ]);
 
@@ -627,6 +634,7 @@ export const TerminalToolCard: React.FC<TerminalToolCardProps> = ({
         isFailed={viewState.isFailed}
         requiresConfirmation={showConfirmButtons}
         toggleTestId="chat-shell-command-toggle"
+        disableExpandAnimation={isAutoCollapseInstant}
       />
     </div>
   );

@@ -280,7 +280,12 @@ export const TaskToolDisplay: React.FC<ToolCardProps> = ({
   const isRunning = status === 'preparing' || status === 'streaming' || status === 'running';
   const keepCollapsedWhileRunning = isCancelAction || isReviewCoverageTask;
   
-  const { cardRootRef, applyExpandedState } = useToolCardHeightContract({
+  const {
+    cardRootRef,
+    applyExpandedState,
+    requestAutoCollapse,
+    isAutoCollapseInstant,
+  } = useToolCardHeightContract({
     toolId,
     toolName: toolItem.toolName,
   });
@@ -295,19 +300,26 @@ export const TaskToolDisplay: React.FC<ToolCardProps> = ({
     if (reason === 'manual') {
       userToggledRef.current = true;
     }
-    if (nextExpanded !== isExpanded) {
+    if (reason !== 'auto' && nextExpanded !== isExpanded) {
       /* Sync before the next commit paints so subagent wrapper + task card merge in one frame. */
       taskCollapseStateManager.setCollapsed(toolItem.id, !nextExpanded);
     }
+    if (reason === 'auto' && !nextExpanded) {
+      return requestAutoCollapse(isExpanded, setIsExpanded, {
+        beforeCollapse: () => taskCollapseStateManager.setCollapsed(toolItem.id, true),
+      });
+    }
     applyExpandedState(isExpanded, nextExpanded, setIsExpanded);
-  }, [applyExpandedState, isExpanded, toolItem.id]);
+  }, [applyExpandedState, isExpanded, requestAutoCollapse, toolItem.id]);
 
   useLayoutEffect(() => {
     const prevStatus = prevStatusRef.current;
 
     if (isCancelAction) {
       if (isExpanded) {
-        updateCardExpandedState(false, 'auto');
+        const cancelAutoCollapse = updateCardExpandedState(false, 'auto');
+        prevStatusRef.current = status;
+        return cancelAutoCollapse;
       }
       prevStatusRef.current = status;
       return;
@@ -323,13 +335,13 @@ export const TaskToolDisplay: React.FC<ToolCardProps> = ({
       
       if (status === 'completed') {
         if (isLastItem !== true) {
-          updateCardExpandedState(false, 'auto');
+          return updateCardExpandedState(false, 'auto');
         }
       } else if (isRunning && !keepCollapsedWhileRunning) {
         updateCardExpandedState(true, 'auto');
       }
     } else if (status === 'completed' && isLastItem === false && isExpanded) {
-      updateCardExpandedState(false, 'auto');
+      return updateCardExpandedState(false, 'auto');
     }
   }, [
     isCancelAction,
@@ -982,6 +994,7 @@ export const TaskToolDisplay: React.FC<ToolCardProps> = ({
         headerExpandAffordance={showHeaderExpandHint}
         isFailed={hasFailedOutcome}
         requiresConfirmation={needsConfirmation}
+        disableExpandAnimation={isAutoCollapseInstant}
       />
     </div>
   );

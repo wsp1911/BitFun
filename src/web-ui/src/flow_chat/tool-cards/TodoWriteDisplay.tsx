@@ -25,7 +25,12 @@ export const TodoWriteDisplay: React.FC<ToolCardProps> = ({
 
   const [expandedState, setExpandedState] = useState<boolean | null>(null);
   const toolId = toolItem.id;
-  const { cardRootRef, applyExpandedState } = useToolCardHeightContract({
+  const {
+    cardRootRef,
+    applyExpandedState,
+    requestAutoCollapse,
+    isAutoCollapseInstant,
+  } = useToolCardHeightContract({
     toolId,
     toolName: toolItem.toolName,
   });
@@ -85,16 +90,16 @@ export const TodoWriteDisplay: React.FC<ToolCardProps> = ({
     if (expandedState !== null || automaticExpanded === desiredAutomaticExpanded) {
       return;
     }
-    applyExpandedState(
-      automaticExpanded,
-      desiredAutomaticExpanded,
-      setAutomaticExpanded,
-    );
+    if (!desiredAutomaticExpanded) {
+      return requestAutoCollapse(automaticExpanded, setAutomaticExpanded);
+    }
+    applyExpandedState(automaticExpanded, true, setAutomaticExpanded);
   }, [
     applyExpandedState,
     automaticExpanded,
     desiredAutomaticExpanded,
     expandedState,
+    requestAutoCollapse,
   ]);
 
   const isExpanded = expandedState ?? automaticExpanded;
@@ -263,6 +268,7 @@ export const TodoWriteDisplay: React.FC<ToolCardProps> = ({
           />
         }
         expandedContent={expandedContent}
+        disableExpandAnimation={isAutoCollapseInstant}
       />
     </div>
   );

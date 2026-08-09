@@ -1,93 +1,123 @@
-# FlowChat Natural Scroll Contract
+# FlowChat Turn Stage and Collapse Contract
 
-FlowChat currently uses the browser's natural scroll range. It deliberately
-does not create synthetic tail space to pin a Turn or protect a card header
-during a height reduction.
+FlowChat has one deliberately narrow synthetic layout mechanism: a bounded
+stage created when a new live Turn begins. It exists only to place the new user
+message near the viewport top. It is not a general scroll-compensation system.
 
-## Current Behavior
+## Turn Stage
 
-- A newly submitted Turn scrolls to the natural tail and enters follow-output.
-- `useFlowChatFollowOutput` is the only continuous writer while output streams.
-- Ordinary `scroll` events do not transfer viewport ownership; only explicit
-  wheel, touch, or keyboard navigation exits follow-output. This
-  keeps layout growth and virtualizer remeasurement from disabling tail
-  following while a card is mounting or expanding.
-- Turn navigation uses Virtuoso `align: 'start'`, but the browser may clamp a
-  target near the transcript tail to the natural maximum `scrollTop`.
-- Tool-card expansion and collapse use normal layout reflow. The card header is
-  not guaranteed to remain at the same viewport position.
-- The Virtuoso Footer contains only real layout space for the current floating
-  input stack, history status, and `RuntimeStatusSlot`.
-- History prepend restoration may restore one captured item offset, but it may
-  not extend the bottom scroll range or install a persistent anchor guard.
+- `VirtualMessageList` is the only stage owner and the Footer is its only DOM
+  representation.
+- Initial session rendering, session switching, history reading, navigation,
+  and search do not create a stage.
+- A new live Turn replaces the previous stage; stages never accumulate.
+- Initialization first commits a provisional stage of one viewport height while
+  continuous follow movement and stage consumption are suspended. The user
+  message is aligned from the resulting real scroll range, then unused space is
+  trimmed once and the natural-content baseline is calibrated. The coordinator
+  then enters `stage-consuming`; follow movement resumes only after the stage is
+  exhausted.
+- The calibrated stage remains clamped to one viewport height and never grows.
+- Natural content growth consumes the stage using a maximum-height watermark.
+  Content shrink, card collapse, input shrink, and remeasurement never restore
+  consumed space.
+- Unconsumed space remains until the next Turn instead of being reclaimed at
+  Turn completion.
 
-These limitations are intentional while a replacement viewport design is
-developed. Do not reintroduce bottom reservations, sticky-latest modes,
-pre-collapse compensation, or another synthetic range under a different name.
+Do not add sticky-latest modes, multiple reservations, header anchors,
+pre-collapse measurements, scroll restoration, or another tail-space writer.
 
 ## Viewport Ownership
 
-Keep `followOutput={false}` on Virtuoso. Continuous movement belongs to
-`useFlowChatFollowOutput`; one-shot navigation belongs to
-`VirtualMessageList`. Card renderers and tool cards must not write the outer
-FlowChat `scrollTop`.
+Keep `followOutput={false}` on Virtuoso. `useFlowChatViewportCoordinator` is the
+only module allowed to issue outer-scroller or Virtuoso movement commands.
+Callers submit typed movement requests under one of these owners:
 
-Local scroll surfaces inside a thinking, explore, terminal, or subagent card
-may manage their own scroll position. They must not dispatch an outer viewport
-compensation request.
+- `turn-placement` owns the bounded new-Turn alignment transaction.
+- `stage-consuming` writes nothing; it preserves the placed viewport while
+  content consumes the remaining stage.
+- `following` may move to the natural tail only after the stage is exhausted.
+- `explicit-navigation` owns Turn, index, search, history-anchor, Task, and
+  focused-item navigation.
+- `idle` represents user-owned natural scrolling.
 
-Stable virtual-item keys and projection identity remain required. Do not split
-one `ModelRound` into multiple virtual items, reclassify projection from a
-timer, or add mount-triggered motion that changes transcript geometry.
+Explicit wheel, touch, or keyboard navigation releases follow ownership;
+ordinary scroll and layout events do not. Virtuoso remeasurement is observed
+as geometry, never registered as a competing owner or compensated afterward.
+
+`FlowChatHeader` participates in the container's normal column layout above the
+message viewport. It must not overlay the Virtuoso scroller or require a
+synthetic list-header inset; viewport coordinates begin at the actual message
+area.
+
+## Automatic Collapse
+
+Tool and thinking cards request automatic collapse through
+`FlowChatAutoCollapseProvider`. The coordinator reads each card's own DOM rect,
+not the containing Virtuoso item:
+
+- While following output, a card may auto-collapse only when fully above or
+  fully below the FlowChat viewport.
+- Outside follow mode, a card may auto-collapse only when fully below the
+  viewport and the viewport is not at the natural tail.
+- Any viewport intersection prevents automatic collapse.
+- Candidates execute oldest-first, one at a time, with two animation frames
+  allowed for React commit and Virtuoso remeasurement before the next one.
+- Coordinated automatic collapse is instant. User-triggered expand/collapse
+  retains the local smooth animation.
+
+Cards outside the main FlowChat provider keep their historical immediate
+automatic-collapse behavior. Card code must not write the outer scroll position
+or publish a collapse-compensation event.
+
+## Long-Term Diagnostics
+
+When `app.logging.flow_chat_diagnostics` is enabled, the dedicated
+`flowchat.log` channel records semantic state transitions rather than every
+scroll or resize callback:
+
+- `STAGE`: creation, 75/50/25/0 percent consumption milestones, exhaustion,
+  creation failure, and clearing on session or presentation changes.
+- `FOLLOW`: ownership entry/exit, inactive-viewport rejection, and natural-tail
+  corrections rate-limited to one entry per second.
+- `COLLAPSE`: candidate registration/cancellation, waiting-reason changes,
+  eligibility, execution, disconnection, and post-collapse settlement.
+- `VIEWPORT`: ownership transitions between placement, stage consumption,
+  following, explicit navigation, and idle.
+
+Do not add full DOM item arrays, streaming text, or unthrottled native-scroll
+geometry to this long-term channel. Every record must contain stable Turn/card
+identity where available and enough scalar geometry to reconstruct the state
+transition.
 
 ## Footer Contract
 
-The Footer height is:
+Footer height is:
 
 ```text
-current input-stack height + viewport bottom inset + message clearance
+current input-stack layout inset + remaining Turn stage
 ```
 
-It must not retain an earlier input height, include an estimated card shrink,
-or grow to make a target start-aligned. Footer height is normal React layout
-state; synchronous imperative `height`/`minHeight` compensation is forbidden.
-
-## Tool-Card Contract
-
-Tool cards update their expanded state normally and dispatch `tool-card-toggle`
-after a real state change so Virtuoso can remeasure. There is no pre-collapse
-intent event. `SmoothHeightCollapse` may continue to animate the local height.
+History state and `RuntimeStatusSlot` remain real Footer content. No other
+component may synchronously change Footer height or retain a prior measurement.
 
 ## Verification
 
 Run the smallest relevant automated checks:
 
 ```text
+pnpm --dir src/web-ui run test:run -- --pool=threads --maxWorkers=1 \
+  src/flow_chat/components/modern/flowChatTurnStage.test.ts \
+  src/flow_chat/components/modern/flowChatAutoCollapse.test.ts \
+  src/flow_chat/components/modern/useFlowChatFollowOutput.test.tsx \
+  src/flow_chat/components/modern/useFlowChatViewportCoordinator.test.tsx \
+  src/flow_chat/components/modern/VirtualMessageList.session-boundary.test.tsx \
+  src/flow_chat/tool-cards/useToolCardHeightContract.test.tsx
 pnpm run type-check:web
 pnpm --dir src/web-ui run lint
-pnpm --dir src/web-ui run test:run \
-  src/flow_chat/components/modern/useFlowChatFollowOutput.test.tsx \
-  src/flow_chat/components/modern/VirtualMessageList.session-boundary.test.tsx \
-  src/flow_chat/components/modern/ModernFlowChatContainer.history-state.test.tsx \
-  src/flow_chat/tool-cards/useToolCardHeightContract.test.tsx
 ```
 
 Agents must not perform UI interaction verification. A human follow-up should
-confirm:
-
-1. A new Turn goes to the natural tail rather than being placed at the top.
-2. Streaming follows the tail until the user scrolls.
-3. Turn Rail and Usage Report navigation work and clamp naturally near the end.
-4. Tool-card collapses reflow naturally without accumulating blank tail space.
-5. Session switching and history paging do not restore stale footer height.
-
-Temporary header movement during card collapse and the inability to top-align
-the final Turns are expected under this contract.
-
-## Related Files
-
-- `VirtualMessageList.tsx`
-- `useFlowChatFollowOutput.ts`
-- `ModernFlowChatContainer.tsx`
-- `../../utils/flowChatScrollLayout.ts`
-- `../../tool-cards/useToolCardHeightContract.ts`
+check new-Turn top placement, streaming follow, explicit user-scroll ownership,
+offscreen collapse above and below, manual collapse animation, short-answer
+remaining space, and natural behavior after stage exhaustion.

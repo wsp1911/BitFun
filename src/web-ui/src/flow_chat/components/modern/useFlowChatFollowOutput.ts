@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type RefObject } from 'react';
+import { flowChatDiagnostics } from '@/infrastructure/diagnostics/flowChatDiagnostics';
 
 export type FollowOutputEnterReason = 'jump-to-latest' | 'new-turn' | 'streaming-resumed';
 export type FollowOutputExitReason =
@@ -15,6 +16,8 @@ interface UseFlowChatFollowOutputOptions {
   isViewportActive: boolean;
   scrollerRef: RefObject<HTMLElement | null>;
   scrollToTail: (behavior: ScrollBehavior) => void;
+  correctToTail: () => boolean;
+  setFollowingDesired: (following: boolean, reason: string) => void;
 }
 
 interface UseFlowChatFollowOutputResult {
@@ -27,6 +30,7 @@ interface UseFlowChatFollowOutputResult {
 }
 
 const BOTTOM_EPSILON_PX = 2;
+const FOLLOW_CORRECTION_DIAGNOSTIC_INTERVAL_MS = 1_000;
 
 function naturalTailScrollTop(scroller: HTMLElement): number {
   return Math.max(0, scroller.scrollHeight - scroller.clientHeight);
@@ -40,6 +44,8 @@ export function useFlowChatFollowOutput({
   isViewportActive,
   scrollerRef,
   scrollToTail,
+  correctToTail,
+  setFollowingDesired,
 }: UseFlowChatFollowOutputOptions): UseFlowChatFollowOutputResult {
   const [isFollowingOutput, setIsFollowingOutput] = useState(false);
   const isFollowingOutputRef = useRef(false);
@@ -49,6 +55,7 @@ export function useFlowChatFollowOutput({
   const previousSessionIdRef = useRef(activeSessionId);
   const previousLatestTurnIdRef = useRef<string | null>(latestTurnId);
   const hasMountedRef = useRef(false);
+  const lastCorrectionDiagnosticAtRef = useRef(Number.NEGATIVE_INFINITY);
 
   isFollowingOutputRef.current = isFollowingOutput;
   isStreamingRef.current = isStreaming;
@@ -76,11 +83,32 @@ export function useFlowChatFollowOutput({
     if (scroller) {
       const target = naturalTailScrollTop(scroller);
       if (Math.abs(target - scroller.scrollTop) > BOTTOM_EPSILON_PX) {
-        scroller.scrollTop = target;
+        const scrollTopBefore = scroller.scrollTop;
+        if (!correctToTail()) {
+          return;
+        }
+        const now = typeof performance === 'undefined' ? Date.now() : performance.now();
+        if (now - lastCorrectionDiagnosticAtRef.current >= FOLLOW_CORRECTION_DIAGNOSTIC_INTERVAL_MS) {
+          lastCorrectionDiagnosticAtRef.current = now;
+          flowChatDiagnostics.trace({
+            hypothesis: 'FOLLOW',
+            location: 'useFlowChatFollowOutput.runFollowFrame',
+            message: 'Follow output corrected the natural tail',
+            data: () => ({
+              sessionId: activeSessionId ?? null,
+              latestTurnId,
+              scrollTopBefore,
+              scrollTopAfter: target,
+              correctionPx: target - scrollTopBefore,
+              scrollHeight: scroller.scrollHeight,
+              clientHeight: scroller.clientHeight,
+            }),
+          });
+        }
       }
     }
     followFrameRef.current = requestAnimationFrame(runFollowFrame);
-  }, [scrollerRef]);
+  }, [activeSessionId, correctToTail, latestTurnId, scrollerRef]);
 
   const startFollowFrame = useCallback(() => {
     if (followFrameRef.current === null && isFollowingOutputRef.current && isStreamingRef.current) {
@@ -90,22 +118,64 @@ export function useFlowChatFollowOutput({
 
   const enterFollowOutput = useCallback((reason: FollowOutputEnterReason) => {
     if (!isViewportActiveRef.current) {
+      flowChatDiagnostics.trace({
+        hypothesis: 'FOLLOW',
+        location: 'useFlowChatFollowOutput.enterFollowOutput',
+        message: 'Follow output entry rejected for an inactive viewport',
+        data: () => ({ reason, sessionId: activeSessionId ?? null, latestTurnId }),
+      });
       return;
     }
+    const wasFollowing = isFollowingOutputRef.current;
     isFollowingOutputRef.current = true;
+    setFollowingDesired(true, reason);
     setIsFollowingOutput(true);
+    flowChatDiagnostics.trace({
+      hypothesis: 'FOLLOW',
+      location: 'useFlowChatFollowOutput.enterFollowOutput',
+      message: 'Follow output ownership entered',
+      data: () => ({
+        reason,
+        wasFollowing,
+        sessionId: activeSessionId ?? null,
+        latestTurnId,
+        isStreaming: isStreamingRef.current,
+      }),
+    });
     scrollToTail(reason === 'jump-to-latest' ? 'smooth' : 'auto');
     startFollowFrame();
-  }, [scrollToTail, startFollowFrame]);
+  }, [activeSessionId, latestTurnId, scrollToTail, setFollowingDesired, startFollowFrame]);
 
-  const exitFollowOutput = useCallback((_reason: FollowOutputExitReason) => {
+  const exitFollowOutput = useCallback((reason: FollowOutputExitReason) => {
+    const wasFollowing = isFollowingOutputRef.current;
     isFollowingOutputRef.current = false;
+    setFollowingDesired(false, reason);
     setIsFollowingOutput(false);
     stopFollowFrame();
-  }, [stopFollowFrame]);
+    if (wasFollowing) {
+      const scroller = scrollerRef.current;
+      flowChatDiagnostics.trace({
+        hypothesis: 'FOLLOW',
+        location: 'useFlowChatFollowOutput.exitFollowOutput',
+        message: 'Follow output ownership exited',
+        data: () => ({
+          reason,
+          sessionId: activeSessionId ?? null,
+          latestTurnId,
+          scrollTop: scroller?.scrollTop ?? null,
+          distanceFromNaturalTail: scroller
+            ? naturalTailScrollTop(scroller) - scroller.scrollTop
+            : null,
+        }),
+      });
+    }
+  }, [activeSessionId, latestTurnId, scrollerRef, setFollowingDesired, stopFollowFrame]);
 
   const scheduleFollowToLatest = useCallback(() => {
-    if (!isFollowingOutputRef.current || !isViewportActiveRef.current) {
+    if (
+      !isFollowingOutputRef.current ||
+      !isViewportActiveRef.current
+    ) {
       return;
     }
     scrollToTail('auto');

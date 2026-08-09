@@ -111,7 +111,12 @@ export const AskUserQuestionCard: React.FC<ToolCardProps> = ({
   const [isExpanded, setIsExpanded] = useState(false);
   const [showCompletedSummary, setShowCompletedSummary] = useState(status === 'completed');
   const toolId = toolItem.id ?? toolCall?.id;
-  const { cardRootRef, applyExpandedState } = useToolCardHeightContract({
+  const {
+    cardRootRef,
+    applyExpandedState,
+    requestAutoCollapse,
+    isAutoCollapseInstant,
+  } = useToolCardHeightContract({
     toolId,
     toolName: toolItem.toolName,
   });
@@ -123,16 +128,15 @@ export const AskUserQuestionCard: React.FC<ToolCardProps> = ({
       !showCompletedSummary;
 
     if (shouldCompactCompleted) {
-      applyExpandedState(true, false, (nextExpanded) => {
+      return requestAutoCollapse(true, (nextExpanded) => {
         setShowCompletedSummary(!nextExpanded);
       });
-      return;
     }
 
     if (status !== 'completed' && showCompletedSummary) {
       setShowCompletedSummary(false);
     }
-  }, [applyExpandedState, isLastItem, showCompletedSummary, status]);
+  }, [isLastItem, requestAutoCollapse, showCompletedSummary, status]);
 
   const isAllAnswered = useCallback(() => {
     if (questions.length === 0) return false;
@@ -500,6 +504,7 @@ export const AskUserQuestionCard: React.FC<ToolCardProps> = ({
           <SmoothHeightCollapse
             isOpen={isExpanded}
             className="ask-user-question-card__answers-collapse"
+            disableAnimation={isAutoCollapseInstant}
           >
             <div className="questions-container expanded" data-bf-component="ask-user-question-card" data-bf-part="questions">
               {questions.map((q, idx) => renderQuestion(q, idx))}

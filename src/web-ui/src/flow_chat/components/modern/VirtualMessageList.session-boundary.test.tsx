@@ -16,6 +16,8 @@ const mocks = vi.hoisted(() => ({
   setVisibleTurnInfo: vi.fn(),
   enterFollowOutput: vi.fn(),
   exitFollowOutput: vi.fn(),
+  followOptions: null as Record<string, unknown> | null,
+  coordinatorOptions: null as Record<string, unknown> | null,
 }));
 
 vi.mock('react-virtuoso', async () => {
@@ -75,14 +77,39 @@ vi.mock('../../store/chatInputStateStore', () => ({
 }));
 
 vi.mock('./useFlowChatFollowOutput', () => ({
-  useFlowChatFollowOutput: () => ({
-    isFollowingOutput: false,
-    enterFollowOutput: mocks.enterFollowOutput,
-    exitFollowOutput: mocks.exitFollowOutput,
-    scheduleFollowToLatest: vi.fn(),
-    handleUserScrollIntent: vi.fn(),
-    handleScroll: vi.fn(),
-  }),
+  useFlowChatFollowOutput: (options: Record<string, unknown>) => {
+    mocks.followOptions = options;
+    return {
+      isFollowingOutput: false,
+      enterFollowOutput: mocks.enterFollowOutput,
+      exitFollowOutput: mocks.exitFollowOutput,
+      scheduleFollowToLatest: vi.fn(),
+      handleUserScrollIntent: vi.fn(),
+      handleScroll: vi.fn(),
+    };
+  },
+}));
+
+vi.mock('./useFlowChatViewportCoordinator', () => ({
+  useFlowChatViewportCoordinator: (options: Record<string, unknown>) => {
+    mocks.coordinatorOptions = options;
+    return {
+      getOwner: () => 'idle',
+      setFollowingDesired: vi.fn(),
+      beginTurnPlacement: vi.fn(),
+      beginStageConsumption: vi.fn(() => true),
+      finishStageConsumption: vi.fn(),
+      beginExplicitNavigation: vi.fn(),
+      handleUserIntent: vi.fn(),
+      scrollToTail: vi.fn(() => true),
+      scrollToIndex: (writer: string, target: Record<string, unknown>) => {
+        if (writer === 'explicit-navigation') mocks.scrollToIndex(target);
+        return true;
+      },
+      setScrollTop: vi.fn(() => true),
+      adjustScrollTop: vi.fn(() => true),
+    };
+  },
 }));
 
 vi.mock('./VirtualItemRenderer', () => ({
@@ -141,6 +168,8 @@ describe('VirtualMessageList natural scroll contract', () => {
     mocks.exitFollowOutput.mockReset();
     mocks.setVisibleTurnInfo.mockReset();
     mocks.virtuosoProps = null;
+    mocks.followOptions = null;
+    mocks.coordinatorOptions = null;
     vi.stubGlobal('ResizeObserver', class {
       observe() {}
       disconnect() {}
@@ -155,6 +184,7 @@ describe('VirtualMessageList natural scroll contract', () => {
 
   it('renders only the current input layout inset in the Footer', () => {
     act(() => root.render(<VirtualMessageList />));
+    expect(container.querySelector('.message-list-header')).toBeNull();
     const footer = container.querySelector<HTMLElement>('.message-list-footer');
     expect(footer?.style.height).toBe('168px');
     expect(footer?.style.minHeight).toBe('168px');
@@ -166,6 +196,20 @@ describe('VirtualMessageList natural scroll contract', () => {
       index: 1,
       align: 'end',
     });
+  });
+
+  it('suspends follow in the same render that detects a new live Turn', () => {
+    mocks.items = [userMessage('turn-1', 'message-1', 'First')];
+    act(() => root.render(<VirtualMessageList />));
+    expect(mocks.coordinatorOptions?.isTurnPlacementPending).toBe(false);
+
+    mocks.items = [
+      userMessage('turn-1', 'message-1', 'First'),
+      userMessage('turn-2', 'message-2', 'Second'),
+    ];
+    act(() => root.render(<VirtualMessageList />));
+
+    expect(mocks.coordinatorOptions?.isTurnPlacementPending).toBe(true);
   });
 
   it('navigates a Turn with best-effort start alignment and no range reservation', () => {

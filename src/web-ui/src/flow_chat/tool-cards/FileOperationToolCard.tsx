@@ -137,6 +137,8 @@ export const FileOperationToolCard: React.FC<FileOperationToolCardProps> = ({
     cardRootRef,
     applyExpandedState: applyHeightContractExpandedState,
     dispatchToolCardToggle,
+    requestAutoCollapse,
+    isAutoCollapseInstant,
   } = useToolCardHeightContract({
     toolId,
     toolName: toolItem.toolName,
@@ -388,12 +390,17 @@ export const FileOperationToolCard: React.FC<FileOperationToolCardProps> = ({
       userToggledContentRef.current = true;
       setRetainLiveCompletionPreview(false);
     }
+    if (reason === 'auto' && !nextExpanded) {
+      return requestAutoCollapse(isContentExpanded, setIsContentExpanded, {
+        beforeCollapse: () => setRetainLiveCompletionPreview(false),
+      });
+    }
     applyHeightContractExpandedState(
       isContentExpanded,
       nextExpanded,
       setIsContentExpanded,
     );
-  }, [applyHeightContractExpandedState, isContentExpanded]);
+  }, [applyHeightContractExpandedState, isContentExpanded, requestAutoCollapse]);
 
   const applyErrorExpandedState = useCallback((nextExpanded: boolean) => {
     applyHeightContractExpandedState(
@@ -424,8 +431,7 @@ export const FileOperationToolCard: React.FC<FileOperationToolCardProps> = ({
       }
 
       setRetainLiveCompletionPreview(false);
-      applyContentExpandedState(false, 'auto');
-      return;
+      return applyContentExpandedState(false, 'auto');
     }
 
     setRetainLiveCompletionPreview(false);
@@ -1253,6 +1259,7 @@ export const FileOperationToolCard: React.FC<FileOperationToolCardProps> = ({
         toggleTestId="chat-file-change-toggle"
         headerExpandAffordance={hasExpandableContent}
         headerAffordanceKind="expand"
+        disableExpandAnimation={isAutoCollapseInstant}
       />
     </div>
   );

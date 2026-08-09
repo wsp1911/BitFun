@@ -35,6 +35,8 @@ export interface CompactToolCardProps {
   header: ReactNode;
   /** Expanded content (optional) */
   expandedContent?: ReactNode;
+  /** Skip height animation for a coordinated offscreen automatic collapse. */
+  disableExpandAnimation?: boolean;
 }
 
 export const CompactToolCard: React.FC<CompactToolCardProps> = ({
@@ -46,6 +48,7 @@ export const CompactToolCard: React.FC<CompactToolCardProps> = ({
   toggleTestId,
   header,
   expandedContent,
+  disableExpandAnimation = false,
 }) => {
   const handleWrapperClick = (event: React.MouseEvent) => {
     if (!onClick || shouldIgnoreCardToggleClick(event)) {
@@ -81,6 +84,11 @@ export const CompactToolCard: React.FC<CompactToolCardProps> = ({
       return;
     }
 
+    if (disableExpandAnimation) {
+      setUseExpandedShell(false);
+      return;
+    }
+
     if (!hasExpandedContent) {
       setUseExpandedShell(false);
       return;
@@ -92,7 +100,7 @@ export const CompactToolCard: React.FC<CompactToolCardProps> = ({
         setUseExpandedShell(false);
       }, FLOWCHAT_COLLAPSE_DURATION_MS);
     }
-  }, [hasExpandedContent, isExpanded, useExpandedShell]);
+  }, [disableExpandAnimation, hasExpandedContent, isExpanded, useExpandedShell]);
 
   useEffect(() => () => {
     if (collapseTimerRef.current !== null) {
@@ -115,6 +123,7 @@ export const CompactToolCard: React.FC<CompactToolCardProps> = ({
         expandedContent={expandedContent}
         toggleTestId={toggleTestId}
         headerExpandAffordance={clickable || Boolean(onClick)}
+        disableExpandAnimation={disableExpandAnimation}
       />
     );
   }
@@ -135,7 +144,11 @@ export const CompactToolCard: React.FC<CompactToolCardProps> = ({
         {header}
       </div>
 
-      <SmoothHeightCollapse isOpen={Boolean(isExpanded && expandedContent)} className="compact-tool-card-expanded-collapse">
+      <SmoothHeightCollapse
+        isOpen={Boolean(isExpanded && expandedContent)}
+        className="compact-tool-card-expanded-collapse"
+        disableAnimation={disableExpandAnimation}
+      >
         <div data-bf-component="compact-tool-card" data-bf-part="expanded" className="compact-tool-card-expanded">
           {expandedContent}
         </div>

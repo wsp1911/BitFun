@@ -7,7 +7,7 @@
   position: absolute;
   left: 0;
   right: 0;
-  top: 93px; // Below FlowChatHeader (36px) + ScrollToTurnHeaderButton hover zone (57px).
+  top: 36px; // Below the scroll-to-current-Turn control inside the message viewport.
   z-index: 10;
   pointer-events: none;
 
@@ -120,7 +120,7 @@
 // ========== Responsive tweaks ==========
 @media (max-width: 768px) {
   .sticky-task-indicator {
-    top: 93px;
+    top: 36px;
     height: 52px;
 
     &__btn {

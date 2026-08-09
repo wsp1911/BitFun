@@ -86,6 +86,10 @@
     grid-template-rows: 1fr;
   }
 
+  &--instant {
+    transition: none;
+  }
+
   > .thinking-content-wrapper {
     overflow: hidden;
   }
