@@ -242,6 +242,75 @@ describe('ExecProcessToolCardView', () => {
     expect(container.querySelector('.terminal-result-container')).toBeNull();
   });
 
+  // The card used to swap whole regions at completion — running indicator out,
+  // output and footer in — so its height dipped between the two commits and the
+  // browser moved the transcript under the reader to compensate.
+  describe('keeping its height across completion', () => {
+    const resultModel: ExecProcessCardModel = {
+      ...model,
+      resultOutput: 'ok',
+      exitCode: 0,
+      wallTimeSeconds: 1.5,
+    };
+    const slot = () => container.querySelector<HTMLElement>('[data-bf-part="outputSlot"]');
+    const footer = () => container.querySelector('[data-bf-part="footer"]');
+    // A card mounted straight at `completed` starts collapsed, so the body only
+    // exists on the path a running command actually takes.
+    const runThenComplete = () => {
+      act(() => {
+        root.render(<ExecProcessToolCardView toolItem={toolItem('running')} model={model} />);
+      });
+      act(() => {
+        root.render(<ExecProcessToolCardView toolItem={toolItem('completed')} model={resultModel} />);
+      });
+    };
+
+    it('renders the same body regions while running as when completed', () => {
+      act(() => {
+        root.render(<ExecProcessToolCardView toolItem={toolItem('running')} model={model} />);
+      });
+      expect(container.querySelector('[data-bf-part="result"]')).not.toBeNull();
+      expect(slot()).not.toBeNull();
+      expect(footer()).not.toBeNull();
+
+      const reservedWhileRunning = slot()?.style.minHeight;
+      expect(reservedWhileRunning).toMatch(/^\d+(\.\d+)?px$/);
+
+      act(() => {
+        root.render(<ExecProcessToolCardView toolItem={toolItem('completed')} model={resultModel} />);
+      });
+
+      expect(container.querySelector('[data-bf-part="result"]')).not.toBeNull();
+      expect(footer()).not.toBeNull();
+      expect(slot()?.style.minHeight).toBe(reservedWhileRunning);
+    });
+
+    it('reserves the streaming row count for the output renderer itself', () => {
+      runThenComplete();
+
+      const reservedPx = Number.parseFloat(slot()?.style.minHeight ?? '0');
+      expect(reservedPx).toBeGreaterThan(0);
+      // A one-line result must not leave the renderer shorter than the box the
+      // card reserved while it was streaming.
+      expect(mocks.outputRendererProps.at(-1)?.minHeight).toBe(reservedPx);
+    });
+
+    it('shows the waiting placeholder inside the reserved area rather than instead of it', () => {
+      act(() => {
+        root.render(<ExecProcessToolCardView toolItem={toolItem('running')} model={model} />);
+      });
+
+      expect(slot()?.textContent).toContain('Running command...');
+    });
+
+    it('leaves elapsed and final duration to the header', () => {
+      runThenComplete();
+
+      expect(footer()?.querySelector('.terminal-execution-time')).toBeNull();
+      expect(footer()?.textContent).toContain('Exit code: 0');
+    });
+  });
+
   describe('with a deferred collapse coordinator', () => {
     // The coordinator accepts the collapse request but never runs it, which is
     // what happens while the card is still inside the viewport.

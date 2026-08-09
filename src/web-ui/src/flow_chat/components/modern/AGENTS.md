@@ -20,8 +20,16 @@ Also follow the repository and Web UI instructions in the parent guides.
   Turn stage, and decreases by a geometry high-water mark without replenishing.
 - Do not add other bottom reservations, sticky Turn modes, pre-collapse
   compensation, or persistent element-anchor guards.
+- The stage is reclaimed at Turn completion for the part past the viewport
+  bottom only, and in full on an explicit jump to the latest content. Never
+  reclaim space that is still on screen; consumption and reclamation stay one
+  writer sharing one DOM read.
 - `useFlowChatViewportCoordinator` is the only module allowed to issue outer
   viewport or Virtuoso movement commands. Follow and navigation are clients.
+- The browser moves `scrollTop` on its own when content height dips, without
+  going through any scroll API. Ownership discipline cannot revoke that, so
+  cards must not change height in the viewport — including by restructuring
+  their body when their work settles.
 - `scrollToIndex` delegates a location Virtuoso replays on later remeasurement
   and the coordinator cannot revoke, so it is limited to one-shot explicit
   navigation. Bounded transactions align from measured DOM geometry instead.
@@ -35,6 +43,9 @@ Also follow the repository and Web UI instructions in the parent guides.
 - A card never changes its own height in the viewport. Two-size cards stay
   compact through streaming and through the pending-collapse window, and grow
   only on `markUserExpandedSettled()` from a user expand after the work settled.
+- Collapses still pending when a new Turn is placed are flushed in one batch
+  inside the placement transaction, before alignment measures and before
+  calibration reads `scrollHeight`. Nothing else may flush.
 - A projection flag that drives automatic collapse must be monotonic, and the
   collapse must not record explicit user state.
 - A remount restores what a card showed rather than re-deriving it, through
@@ -62,6 +73,7 @@ Relevant tests include:
 - `useFlowChatFollowOutput.test.tsx`
 - `VirtualMessageList.layout.test.ts`
 - `VirtualMessageList.session-boundary.test.tsx`
+- `VirtualMessageList.turn-stage.test.tsx`
 - `ModernFlowChatContainer.history-state.test.tsx`
 - `flowChatCollapseMotion.test.ts`
 

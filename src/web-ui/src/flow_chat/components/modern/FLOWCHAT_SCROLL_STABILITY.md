@@ -30,8 +30,29 @@ message near the viewport top. It is not a general scroll-compensation system.
 - Natural content growth consumes the stage using a maximum-height watermark.
   Content shrink, card collapse, input shrink, and remeasurement never restore
   consumed space.
-- Unconsumed space remains until the next Turn instead of being reclaimed at
-  Turn completion.
+- Unconsumed space is reclaimed on exactly two occasions. At Turn completion,
+  only the part past the viewport bottom goes: it is invisible, so removing it
+  cannot clamp `scrollTop` and nothing moves. On an explicit jump to the latest
+  content the whole stage goes, because there the shrink is paid for by the
+  movement the reader asked for — and a stage left standing would send them to a
+  tail made of blank Footer.
+- Reclaiming space that is still on screen is forbidden, at Turn completion as
+  everywhere else. It is the same unrepayable shrink, and for a short answer
+  that space is the reserve doing its job.
+- What is free is the slack between `scrollTop` and the bottom of the scroll
+  range, measured directly. Never derive it by subtracting the stage from
+  `scrollHeight` to reconstruct a stage-free scroll range: a transcript shorter
+  than its viewport makes that quantity negative, and flooring it at zero
+  reports the whole of `scrollTop` as stage-supported.
+- Consumption and reclamation are one writer sharing one DOM read. Splitting
+  them lets the second measure a scroll height the first has already committed
+  against but the browser has not laid out yet, and count the same pixels twice.
+  Reclaiming lowers `initialPx` by what it took, so consumption cannot recompute
+  the space back into existence.
+- An explicit jump calls off a placement transaction in flight, including the
+  window where it is still waiting for the new user message to render. That
+  retry re-enters stage creation directly rather than through the step guard, so
+  it carries its own ownership check.
 
 Do not add sticky-latest modes, multiple reservations, header anchors,
 pre-collapse measurements, scroll restoration, or another tail-space writer.
@@ -53,6 +74,13 @@ Callers submit typed movement requests under one of these owners:
 Explicit wheel, touch, or keyboard navigation releases follow ownership;
 ordinary scroll and layout events do not. Virtuoso remeasurement is observed
 as geometry, never registered as a competing owner or compensated afterward.
+
+The browser is the remaining writer nothing can revoke. When an element
+restructures inside the viewport, the resulting height change can move
+`scrollTop` — through clamping, or through scroll anchoring holding a node below
+the change still — and neither goes through a scroll API, so no amount of
+ownership discipline in this module prevents it. The only defence is upstream:
+elements must not change height in the viewport in the first place.
 
 Ownership governs how long a command stays live, not only who may issue it.
 `scrollToIndex` delegates to Virtuoso, which retains the requested location and
@@ -110,6 +138,24 @@ not the containing Virtuoso item:
   settled. Such a card must retire an action it can no longer perform while
   holding the row that carried it, so the affordance disappears without the
   card shrinking under the reader.
+- Settling must not restructure a card's body. Swapping whole regions — a
+  running indicator out, output and a result footer in — dips the card's height
+  between the two commits, and the browser answers a dip by moving the
+  transcript. A card reserves the space its settled state will need while it is
+  still running: the exec card reserves its streaming row count for the output
+  area and keeps the result footer mounted with nothing in it yet, so completion
+  changes content only. Placeholders sit inside the reserved area rather than
+  replacing it.
+- Collapses still pending when a new Turn is placed run inside the placement
+  transaction, batched into one commit, before both alignment passes measure and
+  before calibration reads `scrollHeight`. That transaction is about to relocate
+  the viewport and realign from the geometry that results, so it is the only
+  moment arbitrary height changes cost nothing to correct — and waiting for
+  those cards to leave the viewport on their own can take an arbitrary number of
+  Turns. Calibrating against a height that is about to shrink would make later
+  growth repay the difference before it consumed anything.
+- Nothing else may flush. The one-at-a-time, two-frame discipline is what keeps
+  every other automatic collapse individually invisible.
 - Coordinated automatic collapse is instant. User-triggered expand/collapse
   retains the local smooth animation.
 
@@ -125,13 +171,33 @@ scroll or resize callback:
 
 - `STAGE`: creation, 75/50/25/0 percent consumption milestones and their
   post-commit anchor geometry, exhaustion, creation failure, placement that
-  settled away from the viewport top, and clearing on session or presentation
-  changes.
+  settled away from the viewport top, reclamation with the geometry that decided
+  how much was free, the viewport falling while the coordinator was not writing
+  it, and clearing on session, presentation, or jump-to-latest.
+
+  Nothing here writes the viewport backwards, so a fall is unrequested by
+  definition. The reader is the only other candidate and their wheel, touch or
+  key arrives first, so a recent user intent is what disqualifies a record —
+  not the current owner, since falls happen while idle too. Do not test for the
+  fall landing on the bottom of the range either: the dip can recover inside the
+  same layout pass, and scroll events are dispatched at the start of the
+  following frame, by which point the range is often taller again. Record the
+  slack on both sides instead, and split the drop into the part the stage gave
+  up and the part the transcript lost — that split is what makes a record
+  actionable.
+
+  This tripwire has a known blind spot: falls of a few pixels have been observed
+  without a record landing. Absence of records is not proof the viewport held
+  still. Attributing a fall to a specific element needs a rect and computed
+  style per rendered element, which distorts the timing it is trying to measure,
+  so it is not left running; add it back temporarily when hunting a specific
+  regression.
 - `FOLLOW`: ownership entry/exit, inactive-viewport rejection, and natural-tail
   corrections rate-limited to one entry per second.
 - `COLLAPSE`: candidate registration/cancellation, waiting-reason changes,
-  eligibility, execution, disconnection, and post-collapse settlement with
-  before/after geometry for the currently staged Turn anchor.
+  eligibility, execution, disconnection, batched flushes inside Turn placement,
+  and post-collapse settlement with before/after geometry for the currently
+  staged Turn anchor.
 - `VIEWPORT`: ownership transitions between placement, stage consumption,
   following, explicit navigation, and idle.
 
@@ -162,6 +228,7 @@ pnpm --dir src/web-ui run test:run -- --pool=threads --maxWorkers=1 \
   src/flow_chat/components/modern/useFlowChatFollowOutput.test.tsx \
   src/flow_chat/components/modern/useFlowChatViewportCoordinator.test.tsx \
   src/flow_chat/components/modern/VirtualMessageList.session-boundary.test.tsx \
+  src/flow_chat/components/modern/VirtualMessageList.turn-stage.test.tsx \
   src/flow_chat/tool-cards/useToolCardHeightContract.test.tsx
 pnpm run type-check:web
 pnpm --dir src/web-ui run lint

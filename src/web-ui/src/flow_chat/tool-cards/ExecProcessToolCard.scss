@@ -40,9 +40,32 @@
     color: var(--bf-appearance-token-color-text-secondary);
   }
 
+  // Reserves the rows the compact card is allowed to show, so running,
+  // cancelled and completed all occupy the same height and the card never
+  // changes size under the reader. The floor itself is set inline, from the
+  // measured terminal row height. Placeholders sit on the first row rather
+  // than centred, so the reserved space reads as room for output to arrive.
+  .exec-process-output-slot {
+    display: flex;
+    flex-direction: column;
+    box-sizing: border-box;
+
+    > .waiting-text {
+      color: var(--bf-appearance-token-color-text-muted);
+      font-size: var(--bf-appearance-token-flowchat-font-size-sm);
+    }
+  }
+
+  // The footer stays mounted while the command runs, with nothing to report
+  // yet. Without a floor the empty row would collapse to its own padding and
+  // the card would grow when the metrics landed.
   .exec-process-result-footer {
     flex-wrap: wrap;
     row-gap: 0.25rem;
+    min-height: calc(
+      var(--bf-appearance-token-flowchat-compact-line-height) +
+      2 * var(--bf-appearance-token-flowchat-inline-gap)
+    );
   }
 
   .exec-process-footer-group {

@@ -6,6 +6,7 @@ import {
   LazyTerminalOutputRenderer,
   type TerminalOutputRendererHandle,
 } from '@/tools/terminal/components/LazyTerminalOutputRenderer';
+import { getEstimatedTerminalOutputRowHeight } from '@/tools/terminal/components/terminalOutputPresentation';
 import { BaseToolCard, ToolCardHeader } from './BaseToolCard';
 import { ToolCardCopyAction, ToolCardHeaderActions } from './ToolCardHeaderActions';
 import { CopyableTextPreview } from '../components/CopyableTextPreview';
@@ -19,6 +20,16 @@ import './ExecProcessToolCard.scss';
 const EXEC_COLLAPSED_STATUSES = new Set(['completed', 'cancelled', 'error', 'rejected']);
 const EXEC_OUTPUT_STREAMING_MAX_ROWS = 4;
 const EXEC_OUTPUT_EXPANDED_MAX_ROWS = 15;
+
+/**
+ * The compact card reserves exactly the rows it is allowed to show, so the
+ * output area is the same height whether it holds four rows of streaming
+ * output, one line of result, or a "running" placeholder. Row height depends on
+ * the device pixel ratio, so it is read rather than hard-coded.
+ */
+function getExecOutputReservedHeightPx(): number {
+  return EXEC_OUTPUT_STREAMING_MAX_ROWS * getEstimatedTerminalOutputRowHeight();
+}
 
 export interface ExecProcessCardModel {
   kind: 'command' | 'stdin' | 'control';
@@ -105,21 +116,23 @@ function formatSecondsAsMs(seconds?: number): number | undefined {
     : undefined;
 }
 
-function renderFooter(model: ExecProcessCardModel, t: (key: string, options?: Record<string, unknown>) => string) {
-  const hasFooter =
-    model.workdir ||
-    model.sessionId != null ||
-    model.exitCode != null ||
-    model.wallTimeSeconds != null ||
-    model.remote != null ||
-    model.tty != null;
-
-  if (!hasFooter) {
-    return null;
-  }
-
+/**
+ * Always rendered, including while the command is still running with nothing to
+ * report yet. The row is part of the card's reserved height: letting it appear
+ * on completion made the card change height in the viewport, which the browser
+ * answered by moving the transcript under the reader.
+ *
+ * Elapsed and final duration both live in the header's `ToolTimeoutIndicator`,
+ * so the footer deliberately carries no time of its own.
+ */
+function renderFooter(
+  model: ExecProcessCardModel,
+  t: (key: string, options?: Record<string, unknown>) => string,
+  notice?: React.ReactNode,
+) {
   return (
     <div data-bf-component="exec-process-tool-card" data-bf-part="footer" className="terminal-result-footer exec-process-result-footer">
+      {notice}
       {model.workdir && (
         <span className="exec-process-footer-group exec-process-footer-group--workdir">
           <span className="terminal-result-label">{t('toolCards.terminal.workingDirectory')}</span>
@@ -142,18 +155,11 @@ function renderFooter(model: ExecProcessCardModel, t: (key: string, options?: Re
           )}
         </span>
       )}
-      {(model.exitCode != null || model.wallTimeSeconds != null) && (
+      {model.exitCode != null && (
         <span className="exec-process-footer-group exec-process-footer-group--metrics">
-          {model.exitCode != null && (
-            <span className={`terminal-exit-code ${model.exitCode === 0 ? 'success' : 'error'}`}>
-              {t('toolCards.terminal.exitCode', { code: model.exitCode })}
-            </span>
-          )}
-          {model.wallTimeSeconds != null && (
-            <span className="terminal-execution-time">
-              {t('toolCards.execProcess.wallTime', { seconds: model.wallTimeSeconds.toFixed(3) })}
-            </span>
-          )}
+          <span className={`terminal-exit-code ${model.exitCode === 0 ? 'success' : 'error'}`}>
+            {t('toolCards.terminal.exitCode', { code: model.exitCode })}
+          </span>
         </span>
       )}
     </div>
@@ -251,6 +257,7 @@ export const ExecProcessToolCardView: React.FC<ExecProcessToolCardViewProps> = (
   const maxRows = isRunning || compactSettledPreview
     ? EXEC_OUTPUT_STREAMING_MAX_ROWS
     : EXEC_OUTPUT_EXPANDED_MAX_ROWS;
+  const reservedOutputHeightPx = getExecOutputReservedHeightPx();
 
   const updatePrimaryTextTruncation = useCallback(() => {
     const element = commandRef.current;
@@ -375,6 +382,7 @@ export const ExecProcessToolCardView: React.FC<ExecProcessToolCardViewProps> = (
         ref={outputRendererRef}
         content={options?.formatSessionPreview ? formatSessionViewPreviewText(output) : output}
         className="terminal-xterm-output"
+        minHeight={reservedOutputHeightPx}
         maxRows={maxRows}
       />
     </div>
@@ -415,45 +423,46 @@ export const ExecProcessToolCardView: React.FC<ExecProcessToolCardViewProps> = (
     isRunning ? <DotMatrixLoader size="medium" /> : null
   );
 
-  const renderExpandedContent = () => {
+  /**
+   * What fills the reserved output area. Every branch returns content only — the
+   * slot around it owns the height, so which branch is showing cannot change it.
+   */
+  const renderOutputSlotContent = () => {
     if (status === 'completed') {
+      if (model.resultOutput) {
+        return renderOutputWithCopyAction(model.resultOutput, { formatSessionPreview: true });
+      }
       return (
-        <div data-bf-component="exec-process-tool-card" data-bf-part="result" className="terminal-result-container">
-          {model.resultOutput ? (
-            <div className="terminal-result-output" data-bf-component="exec-process-tool-card" data-bf-part="output">
-              {renderOutputWithCopyAction(model.resultOutput, { formatSessionPreview: true })}
-            </div>
-          ) : model.resultNoticeText ? (
-            <div className="terminal-execution-output terminal-waiting exec-process-result-notice" data-bf-component="exec-process-tool-card" data-bf-part="waiting" data-bf-state="waiting">
-              <span className="waiting-text">{model.resultNoticeText}</span>
-            </div>
-          ) : (
-            <div className="terminal-execution-output terminal-waiting exec-process-empty-output" data-bf-component="exec-process-tool-card" data-bf-part="waiting" data-bf-state="waiting">
-              <span className="waiting-text">{model.noOutputText}</span>
-            </div>
-          )}
-          {renderFooter(model, t)}
-        </div>
+        <span className="waiting-text">{model.resultNoticeText || model.noOutputText}</span>
       );
+    }
+
+    if (liveOutput) {
+      return renderOutputWithCopyAction(liveOutput);
     }
 
     if (rejectedOrCancelled) {
-      return (
-        <div data-bf-component="exec-process-tool-card" data-bf-part="result" data-bf-state="cancelled" className="terminal-result-container cancelled">
-          {liveOutput && (
-            <div className="terminal-result-output" data-bf-component="exec-process-tool-card" data-bf-part="output">
-              {renderOutputWithCopyAction(liveOutput)}
-            </div>
-          )}
-          <div className="terminal-result-footer" data-bf-component="exec-process-tool-card" data-bf-part="footer">
-            <span className="terminal-cancelled-text">
-              {t(cancelledStatusLabelKey)}
-            </span>
-          </div>
-        </div>
-      );
+      return <span className="waiting-text">{t(cancelledStatusLabelKey)}</span>;
     }
 
+    return (
+      <span className="waiting-text">
+        {isParamsStreaming ? t('toolCards.terminal.receivingParams') : model.waitingText}
+      </span>
+    );
+  };
+
+  /**
+   * One structure for running, cancelled and completed alike. The card used to
+   * swap whole regions at completion — running indicator out, output and footer
+   * in — so its height dipped between the two commits and the browser answered
+   * by moving the transcript under the reader. Reserving the output area and
+   * keeping the footer mounted makes the transition content-only.
+   *
+   * Approval is deliberately left out: nothing is running yet, and growing into
+   * this layout when it starts is benign.
+   */
+  const renderExpandedContent = () => {
     if (status === 'pending_confirmation') {
       return (
         <div data-bf-component="exec-process-tool-card" data-bf-part="waiting" data-bf-state="waiting" className="terminal-execution-output terminal-waiting">
@@ -462,23 +471,34 @@ export const ExecProcessToolCardView: React.FC<ExecProcessToolCardViewProps> = (
       );
     }
 
-    if (liveOutput && isRunning) {
-      return (
-        <div data-bf-component="exec-process-tool-card" data-bf-part="output" className="terminal-execution-output">
-          {renderOutputWithCopyAction(liveOutput)}
-        </div>
-      );
+    if (status !== 'completed' && !rejectedOrCancelled && !isRunning && !isParamsStreaming) {
+      return null;
     }
 
-    if (isRunning || isParamsStreaming) {
-      return (
-        <div data-bf-component="exec-process-tool-card" data-bf-part="waiting" data-bf-state="waiting" className="terminal-execution-output terminal-waiting">
-          <span className="waiting-text">{isParamsStreaming ? t('toolCards.terminal.receivingParams') : model.waitingText}</span>
+    return (
+      <div
+        data-bf-component="exec-process-tool-card"
+        data-bf-part="result"
+        data-bf-state={rejectedOrCancelled ? 'cancelled' : undefined}
+        className={`terminal-result-container${rejectedOrCancelled ? ' cancelled' : ''}`}
+      >
+        <div
+          className="terminal-result-output exec-process-output-slot"
+          data-bf-component="exec-process-tool-card"
+          data-bf-part="outputSlot"
+          style={{ minHeight: `${reservedOutputHeightPx}px` }}
+        >
+          {renderOutputSlotContent()}
         </div>
-      );
-    }
-
-    return null;
+        {renderFooter(
+          model,
+          t,
+          rejectedOrCancelled
+            ? <span className="terminal-cancelled-text">{t(cancelledStatusLabelKey)}</span>
+            : undefined,
+        )}
+      </div>
+    );
   };
 
   const renderErrorContent = () => {
