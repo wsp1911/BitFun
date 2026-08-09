@@ -4,6 +4,7 @@ import {
   useLayoutEffect,
   useMemo,
   useRef,
+  type MutableRefObject,
   type ReactNode,
   type RefObject,
 } from 'react';
@@ -25,6 +26,19 @@ interface AutoCollapseRequest {
   lastDecision: FlowChatAutoCollapseDecision | 'disconnected' | null;
 }
 
+export interface FlowChatAutoCollapseController {
+  /**
+   * Runs every pending collapse at once and returns how many executed.
+   *
+   * The one-at-a-time, two-frame discipline in `evaluate` exists to keep each
+   * collapse individually invisible. A caller that is about to relocate the
+   * viewport and realign from the resulting geometry does not need it: the
+   * collapses are collectively invisible, and pacing them would only delay the
+   * transaction. Nothing else may call this.
+   */
+  flushPending: (reason: string) => number;
+}
+
 interface FlowChatAutoCollapseProviderProps {
   children: ReactNode;
   scrollerRef: RefObject<HTMLElement | null>;
@@ -34,6 +48,7 @@ interface FlowChatAutoCollapseProviderProps {
   sessionId: string | null;
   anchorTurnId: string | null;
   isSuspended?: boolean;
+  controllerRef?: MutableRefObject<FlowChatAutoCollapseController | null>;
 }
 
 const NATURAL_TAIL_EPSILON_PX = 2;
@@ -47,6 +62,7 @@ export function FlowChatAutoCollapseProvider({
   sessionId,
   anchorTurnId,
   isSuspended = false,
+  controllerRef,
 }: FlowChatAutoCollapseProviderProps) {
   const requestsRef = useRef(new Map<number, AutoCollapseRequest>());
   const nextRequestIdRef = useRef(1);
@@ -234,6 +250,49 @@ export function FlowChatAutoCollapseProvider({
       evaluationFrameRef.current = requestAnimationFrame(evaluate);
     }
   }, [evaluate]);
+
+  const flushPending = useCallback((reason: string) => {
+    const pending = Array.from(requestsRef.current.values());
+    requestsRef.current.clear();
+    // The queued evaluation would find an empty map, and its own scheduling
+    // gate is the only thing keeping a second one from being queued.
+    if (evaluationFrameRef.current !== null) {
+      cancelAnimationFrame(evaluationFrameRef.current);
+      evaluationFrameRef.current = null;
+    }
+
+    let executedCount = 0;
+    for (const pendingRequest of pending) {
+      if (!pendingRequest.element.isConnected) continue;
+      pendingRequest.collapse();
+      executedCount += 1;
+    }
+
+    if (pending.length > 0) {
+      flowChatDiagnostics.trace({
+        hypothesis: 'COLLAPSE',
+        location: 'FlowChatAutoCollapseProvider.flushPending',
+        message: 'Automatic collapse candidates flushed in one commit',
+        data: () => ({
+          reason,
+          sessionId,
+          anchorTurnId: policyRef.current.anchorTurnId,
+          pendingCount: pending.length,
+          executedCount,
+          cardIds: pending.map(pendingRequest => pendingRequest.cardId),
+        }),
+      });
+    }
+    return executedCount;
+  }, [sessionId]);
+
+  useLayoutEffect(() => {
+    if (!controllerRef) return;
+    controllerRef.current = { flushPending };
+    return () => {
+      controllerRef.current = null;
+    };
+  }, [controllerRef, flushPending]);
 
   const request = useCallback((element: HTMLElement, collapse: () => void) => {
     const id = nextRequestIdRef.current;

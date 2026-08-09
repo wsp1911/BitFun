@@ -38,6 +38,12 @@ export interface CalibrateFlowChatTurnStageInput {
   bottomLayoutInsetPx: number;
 }
 
+export interface FlowChatTurnStageViewportGeometry {
+  scrollTopPx: number;
+  scrollHeightPx: number;
+  clientHeightPx: number;
+}
+
 export type FlowChatTurnStageRemainingBucket = 0 | 1 | 2 | 3 | 4;
 
 const finiteNonNegative = (value: number) => (
@@ -111,6 +117,56 @@ export function consumeFlowChatTurnStage(
     ...stage,
     remainingPx,
     maxNaturalExtentPx,
+  };
+}
+
+/**
+ * How much of the stage has to stay so removing the rest cannot move content.
+ * Free space is measured directly as the slack between `scrollTop` and the
+ * bottom of the scroll range — the browser clamps only once the content can no
+ * longer reach the reader's position.
+ *
+ * Do not reconstruct "the scroll range this transcript would have with no
+ * stage" by subtracting `remainingPx` from `scrollHeightPx`. A transcript
+ * shorter than its viewport makes that intermediate negative, and clamping it
+ * to zero reports the whole of `scrollTop` as stage-supported — which reclaims
+ * far past the slack and drops the transcript by the difference.
+ *
+ * The geometry must be read while `stage.remainingPx` is the amount actually
+ * laid out, so the slack describes the same Footer the caller is trimming.
+ */
+export function measureVisibleFlowChatTurnStagePx(
+  stage: FlowChatTurnStageState,
+  geometry: FlowChatTurnStageViewportGeometry,
+): number {
+  const removableWithoutClampPx = (geometry.scrollHeightPx - geometry.clientHeightPx)
+    - finiteNonNegative(geometry.scrollTopPx);
+  return Math.min(
+    stage.remainingPx,
+    Math.max(0, stage.remainingPx - Math.max(0, removableWithoutClampPx)),
+  );
+}
+
+/**
+ * Reduces the stage to `remainingPx`. `initialPx` drops by the same amount so
+ * the next consumption cannot recompute the trimmed space back into existence —
+ * the stage may only ever shrink.
+ *
+ * `baselineNaturalExtentPx` deliberately stays put: the Footer loses exactly the
+ * pixels the stage gave up, so the natural extent this stage was calibrated
+ * against is unchanged and later growth still consumes pixel for pixel.
+ */
+export function trimFlowChatTurnStage(
+  stage: CalibratedFlowChatTurnStage,
+  remainingPx: number,
+): CalibratedFlowChatTurnStage {
+  const nextRemainingPx = Math.min(stage.remainingPx, finiteNonNegative(remainingPx));
+  const trimmedPx = stage.remainingPx - nextRemainingPx;
+  if (trimmedPx <= 0) return stage;
+  return {
+    ...stage,
+    initialPx: Math.max(0, stage.initialPx - trimmedPx),
+    remainingPx: nextRemainingPx,
   };
 }
 

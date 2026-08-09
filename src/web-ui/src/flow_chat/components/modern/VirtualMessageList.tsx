@@ -49,12 +49,17 @@ import { RuntimeStatusSlot } from './RuntimeStatusSlot';
 import { StickyTaskIndicator } from '../StickyTaskIndicator';
 import { useFlowChatFollowOutput } from './useFlowChatFollowOutput';
 import { useFlowChatViewportCoordinator } from './useFlowChatViewportCoordinator';
-import { FlowChatAutoCollapseProvider } from './FlowChatAutoCollapseContext';
+import {
+  FlowChatAutoCollapseProvider,
+  type FlowChatAutoCollapseController,
+} from './FlowChatAutoCollapseContext';
 import {
   calibrateFlowChatTurnStage,
   consumeFlowChatTurnStage,
   createProvisionalFlowChatTurnStage,
   getFlowChatTurnStageRemainingBucket,
+  measureVisibleFlowChatTurnStagePx,
+  trimFlowChatTurnStage,
   type FlowChatTurnStageState,
 } from './flowChatTurnStage';
 import { flowChatDiagnostics } from '@/infrastructure/diagnostics/flowChatDiagnostics';
@@ -70,12 +75,23 @@ const SEARCH_NAVIGATION_MAX_ATTEMPTS = 24;
 const TURN_PLACEMENT_ALIGNMENT_EPSILON_PX = 0.5;
 /** Above this the new Turn is visibly detached from the header: a failure. */
 const TURN_PLACEMENT_MAX_SETTLED_OFFSET_PX = 4;
+/** Below this a backwards scroll is sub-pixel residue, not the viewport falling. */
+const VIEWPORT_FALL_EPSILON_PX = 1;
+/** A backwards scroll this soon after a wheel, touch or key is the reader's. */
+const USER_SCROLL_INTENT_GRACE_MS = 700;
 const FLOW_CHAT_VIRTUOSO_OVERSCAN = { main: 600, reverse: 600 } as const;
 const FLOW_CHAT_VIRTUOSO_VIEWPORT_INCREASE = { top: 600, bottom: 600 } as const;
 const IDLE_HISTORY_WINDOW_BOUNDARY_STATE: Record<
   SessionHistoryWindowDirection,
   'idle' | 'loading' | 'error'
 > = { before: 'idle', after: 'idle' };
+
+/** What a fall is measured against; see `sampleStageGeometry`. */
+interface StageGeometrySample {
+  scrollTopPx: number;
+  scrollHeightPx: number;
+  remainingPx: number;
+}
 
 export type FlowChatTurnNavigationStatus = 'rejected' | 'pending' | 'settled';
 
@@ -286,6 +302,12 @@ const VirtualMessageListSession = forwardRef<VirtualMessageListRef, VirtualMessa
   const visibleTurnUpdateFrameRef = useRef<number | null>(null);
   const stageMilestoneSettlementFrameRef = useRef<number | null>(null);
   const turnStageUpdateFrameRef = useRef<number | null>(null);
+  const pendingStageTrimReasonRef = useRef<string | null>(null);
+  const stageGeometrySampleRef = useRef<StageGeometrySample | null>(null);
+  const lastScrollTopRef = useRef<number | null>(null);
+  const lastUserScrollIntentAtRef = useRef(Number.NEGATIVE_INFINITY);
+  const jumpToLatestFrameRef = useRef<number | null>(null);
+  const autoCollapseControllerRef = useRef<FlowChatAutoCollapseController | null>(null);
   const resumeFollowAfterStageRef = useRef<() => void>(() => {});
 
   const virtuosoIndexStateRef = useRef({
@@ -356,21 +378,135 @@ const VirtualMessageListSession = forwardRef<VirtualMessageListRef, VirtualMessa
     isTurnPlacementPending: hasPendingTurnStageCalibration,
   });
 
+  /** The reference `updateTurnStage` leaves behind for the fall tripwire. */
+  const sampleStageGeometry = useCallback((scroller: HTMLElement) => {
+    if (!flowChatDiagnostics.isEnabled()) return;
+    const stage = turnStageRef.current;
+    stageGeometrySampleRef.current = {
+      scrollTopPx: scroller.scrollTop,
+      scrollHeightPx: scroller.scrollHeight,
+      remainingPx: stage?.remainingPx ?? 0,
+    };
+  }, []);
+
+  /**
+   * Nothing in this module writes the viewport backwards, so a fall is by
+   * definition something nobody asked for — almost always the browser clamping
+   * `scrollTop` after total height dipped below it. The reader is the only other
+   * candidate, and their wheel, touch or key lands here first, so a recent
+   * intent is what disqualifies a record rather than the current owner: falls
+   * happen while idle too, and gating on ownership hid them.
+   *
+   * Landing exactly on the bottom of the range is *not* used as the test. The
+   * dip can recover inside the same layout pass, and scroll events are dispatched
+   * at the start of the following frame, so by then the range is often already
+   * taller than where the reader was left. That distinction is recorded as data
+   * instead.
+   *
+   * Known blind spot: falls smaller than the reader ever notices have been seen
+   * without a record landing here. Absence of records is not proof the viewport
+   * held still. Splitting the drop into `stageDeltaPx` and `naturalExtentDeltaPx`
+   * is what makes a record actionable; attributing it further needs per-element
+   * measurement, which is too costly to leave running.
+   */
+  const reportViewportFall = useCallback((scroller: HTMLElement) => {
+    const previousScrollTopPx = lastScrollTopRef.current;
+    lastScrollTopRef.current = scroller.scrollTop;
+    const previous = stageGeometrySampleRef.current;
+    if (!flowChatDiagnostics.isEnabled() || !previous || previousScrollTopPx === null) return;
+    const fellByPx = previousScrollTopPx - scroller.scrollTop;
+    if (fellByPx <= VIEWPORT_FALL_EPSILON_PX) return;
+    const owner = viewportCoordinator.getOwner();
+    const sinceUserScrollIntentMs = performance.now() - lastUserScrollIntentAtRef.current;
+    if (sinceUserScrollIntentMs < USER_SCROLL_INTENT_GRACE_MS) return;
+
+    const maxScrollTopPx = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
+    const stage = turnStageRef.current;
+    flowChatDiagnostics.trace({
+      hypothesis: 'STAGE',
+      location: 'VirtualMessageList.handleNativeScroll',
+      message: 'Viewport fell while the coordinator was not writing it',
+      data: () => ({
+        sessionId: activeSessionId,
+        turnId: stage?.turnId ?? null,
+        fellByPx,
+        scrollTopBefore: previousScrollTopPx,
+        scrollTopAfter: scroller.scrollTop,
+        maxScrollTopPx,
+        // Zero means the dip was still present when this event was dispatched;
+        // positive means it had already recovered and only the fall remains.
+        slackAfterFallPx: maxScrollTopPx - scroller.scrollTop,
+        slackBeforeFallPx: (previous.scrollHeightPx - scroller.clientHeight) - previousScrollTopPx,
+        sinceUserScrollIntentMs,
+        scrollHeightBefore: previous.scrollHeightPx,
+        scrollHeightAfter: scroller.scrollHeight,
+        scrollHeightDeltaPx: scroller.scrollHeight - previous.scrollHeightPx,
+        stageRemainingBefore: previous.remainingPx,
+        stageRemainingAfter: stage?.remainingPx ?? null,
+        // Splits the dip into the part the stage gave up and the part the
+        // transcript itself lost.
+        stageDeltaPx: (stage?.remainingPx ?? 0) - previous.remainingPx,
+        naturalExtentDeltaPx: (scroller.scrollHeight - (stage?.remainingPx ?? 0))
+          - (previous.scrollHeightPx - previous.remainingPx),
+        maxNaturalExtentPx: stage?.isCalibrated ? stage.maxNaturalExtentPx : null,
+        viewportOwner: owner,
+      }),
+    });
+  }, [activeSessionId, viewportCoordinator]);
+
   const updateTurnStage = useCallback(() => {
+    const trimReason = pendingStageTrimReasonRef.current;
+    pendingStageTrimReasonRef.current = null;
     const scroller = scrollerElementRef.current;
     const stage = turnStageRef.current;
     // Ownership lives outside React rendering, so it stays accurate even when a
     // layout callback lands between the placement transaction's own renders.
     if (!scroller || !stage || viewportCoordinator.getOwner() === 'turn-placement') return;
     if (!stage.isCalibrated) return;
-    const next = consumeFlowChatTurnStage(
+    sampleStageGeometry(scroller);
+    const consumed = consumeFlowChatTurnStage(
       stage,
       scroller.scrollHeight,
       bottomLayoutInsetPx,
     );
+    // Consumption and trimming are one writer sharing one DOM read. Splitting
+    // them would let the second measure a scroll height the first has already
+    // committed against but the browser has not laid out yet, and count the
+    // same pixels twice.
+    //
+    // The trim is measured against `stage`, whose `remainingPx` is what the
+    // Footer currently lays out, so it stays independent of the consumption
+    // committed alongside it.
+    const next = trimReason
+      ? trimFlowChatTurnStage(consumed, measureVisibleFlowChatTurnStagePx(stage, {
+        scrollTopPx: scroller.scrollTop,
+        scrollHeightPx: scroller.scrollHeight,
+        clientHeightPx: scroller.clientHeight,
+      }))
+      : consumed;
     if (next !== stage) {
       turnStageRef.current = next;
       setTurnStage(next);
+      if (next !== consumed) {
+        flowChatDiagnostics.trace({
+          hypothesis: 'STAGE',
+          location: 'VirtualMessageList.updateTurnStage',
+          message: 'Turn stage trimmed to the part the viewport still reaches',
+          data: () => ({
+            sessionId: activeSessionId,
+            turnId: next.turnId,
+            reason: trimReason,
+            laidOutRemainingPx: stage.remainingPx,
+            consumedRemainingPx: consumed.remainingPx,
+            trimmedRemainingPx: next.remainingPx,
+            reclaimedPx: consumed.remainingPx - next.remainingPx,
+            scrollTop: scroller.scrollTop,
+            scrollHeight: scroller.scrollHeight,
+            clientHeight: scroller.clientHeight,
+            bottomLayoutInsetPx,
+          }),
+        });
+      }
       const previousBucket = stageRemainingBucketRef.current;
       const nextBucket = getFlowChatTurnStageRemainingBucket(next);
       if (previousBucket !== nextBucket) {
@@ -455,7 +591,7 @@ const VirtualMessageListSession = forwardRef<VirtualMessageListRef, VirtualMessa
         });
       }
     }
-  }, [activeSessionId, bottomLayoutInsetPx, viewportCoordinator]);
+  }, [activeSessionId, bottomLayoutInsetPx, sampleStageGeometry, viewportCoordinator]);
 
   // Consumption changes the Footer height, which the same ResizeObserver would
   // observe again. Coalescing to one frame keeps that out of the observer's own
@@ -468,12 +604,34 @@ const VirtualMessageListSession = forwardRef<VirtualMessageListRef, VirtualMessa
     });
   }, [updateTurnStage]);
 
+  const requestTurnStageTrim = useCallback((reason: string) => {
+    pendingStageTrimReasonRef.current = reason;
+    scheduleTurnStageUpdate();
+  }, [scheduleTurnStageUpdate]);
+
+  // A finished Turn is the moment to hand back stage space the transcript never
+  // grew into. Only the part past the viewport bottom goes: it is invisible, so
+  // removing it cannot clamp `scrollTop`. Reclaiming the part still on screen
+  // would drop content under a reader who did nothing, which is the shrink no
+  // reserve can repay — and the space that stays is exactly the reserve doing
+  // its job for a short answer.
+  const wasStreamingOutputRef = useRef(isStreamingOutput);
+  useEffect(() => {
+    const wasStreamingOutput = wasStreamingOutputRef.current;
+    wasStreamingOutputRef.current = isStreamingOutput;
+    if (!wasStreamingOutput || isStreamingOutput) return;
+    requestTurnStageTrim('turn-completed');
+  }, [isStreamingOutput, requestTurnStageTrim]);
+
   useEffect(() => () => {
     if (stageMilestoneSettlementFrameRef.current !== null) {
       cancelAnimationFrame(stageMilestoneSettlementFrameRef.current);
     }
     if (turnStageUpdateFrameRef.current !== null) {
       cancelAnimationFrame(turnStageUpdateFrameRef.current);
+    }
+    if (jumpToLatestFrameRef.current !== null) {
+      cancelAnimationFrame(jumpToLatestFrameRef.current);
     }
   }, []);
 
@@ -505,6 +663,7 @@ const VirtualMessageListSession = forwardRef<VirtualMessageListRef, VirtualMessa
   resumeFollowAfterStageRef.current = scheduleFollowToLatest;
 
   const notifyUserScrollIntent = useCallback(() => {
+    lastUserScrollIntentAtRef.current = performance.now();
     viewportCoordinator.handleUserIntent('user-scroll');
     handleUserScrollIntent();
     onUserScrollIntent?.();
@@ -581,6 +740,9 @@ const VirtualMessageListSession = forwardRef<VirtualMessageListRef, VirtualMessa
         scrollerElement.scrollHeight - scrollerElement.clientHeight - scrollerElement.scrollTop,
       );
       setIsAtBottom(distanceFromBottom <= 50);
+      // Before anything else: the dip that caused a clamp may only exist for
+      // this event, and reading geometry later finds it already recovered.
+      reportViewportFall(scrollerElement);
       handleScroll();
       scheduleVisibleTurnInfoUpdate();
     };
@@ -601,7 +763,13 @@ const VirtualMessageListSession = forwardRef<VirtualMessageListRef, VirtualMessa
       scrollerElement.removeEventListener('touchmove', handleTouchMove);
       scrollerElement.removeEventListener('keydown', handleKeyDown);
     };
-  }, [handleScroll, notifyUserScrollIntent, scheduleVisibleTurnInfoUpdate, scrollerElement]);
+  }, [
+    handleScroll,
+    notifyUserScrollIntent,
+    reportViewportFall,
+    scheduleVisibleTurnInfoUpdate,
+    scrollerElement,
+  ]);
 
   useEffect(() => {
     if (!scrollerElement) return;
@@ -831,6 +999,15 @@ const VirtualMessageListSession = forwardRef<VirtualMessageListRef, VirtualMessa
     };
 
     const createStage = () => {
+      // The retry below re-enters here directly rather than through
+      // `stepWhilePlacing`, so this is where the transaction notices it lost
+      // ownership while waiting for the user message to render. Without it, a
+      // jump to the latest content during that wait would be undone by a stage
+      // created a frame later.
+      if (viewportCoordinator.getOwner() !== 'turn-placement') {
+        releasePlacement();
+        return;
+      }
       attempts += 1;
       const userMessage = getRenderedUserMessageElement(latestTurnId);
       if (!userMessage) {
@@ -862,6 +1039,20 @@ const VirtualMessageListSession = forwardRef<VirtualMessageListRef, VirtualMessa
       turnStageRef.current = provisional;
       stageRemainingBucketRef.current = getFlowChatTurnStageRemainingBucket(provisional);
       setTurnStage(provisional);
+      // This transaction is about to relocate the viewport and realign from the
+      // resulting geometry, so height changes made now cost nothing to correct.
+      // It is the only moment collapses held over from earlier Turns can run
+      // without moving content under the reader — waiting for them to leave the
+      // viewport on their own can take an arbitrary number of Turns.
+      //
+      // It must land here, in the same commit as the provisional stage: before
+      // both alignment passes measure, and before calibration reads
+      // `scrollHeight`. A baseline taken against a height that is about to
+      // shrink would make later growth repay the difference before it consumed
+      // anything, and the stage would outstay its Turn.
+      const flushedCollapseCount = autoCollapseControllerRef.current?.flushPending(
+        'turn-placement',
+      ) ?? 0;
       flowChatDiagnostics.trace({
         hypothesis: 'STAGE',
         location: 'VirtualMessageList.createTurnStage',
@@ -871,6 +1062,7 @@ const VirtualMessageListSession = forwardRef<VirtualMessageListRef, VirtualMessa
           turnId: latestTurnId,
           attempts,
           provisionalPx: provisional.initialPx,
+          flushedCollapseCount,
           previousStageRemainingPx,
           scrollTopBeforePlacement: scroller.scrollTop,
           scrollHeight: scroller.scrollHeight,
@@ -1159,10 +1351,66 @@ const VirtualMessageListSession = forwardRef<VirtualMessageListRef, VirtualMessa
     enterFollowOutput('jump-to-latest');
   }, [enterFollowOutput]);
 
+  /**
+   * An explicit jump to the latest content is the one moment the whole stage may
+   * go. The space exists to hold a new Turn near the viewport top; a reader
+   * asking to be taken to the tail has withdrawn that request, and the resulting
+   * shrink is paid for by the movement they asked for. Keeping the space instead
+   * sends them to a tail made of blank Footer.
+   */
+  const discardTurnStageForJumpToLatest = useCallback(() => {
+    const stage = turnStageRef.current;
+    // A placement that has not produced a stage yet still has to be called off:
+    // it is waiting for the new user message to render and would otherwise
+    // reinstate the space a frame after the jump removed it.
+    const isPlacingTurn = viewportCoordinator.getOwner() === 'turn-placement';
+    if (!stage && !isPlacingTurn) return false;
+    flowChatDiagnostics.trace({
+      hypothesis: 'STAGE',
+      location: 'VirtualMessageList.scrollToLatestEndPosition',
+      message: 'Turn stage discarded for an explicit jump to the latest content',
+      data: () => ({
+        sessionId: activeSessionId,
+        turnId: stage?.turnId ?? latestTurnId,
+        remainingPx: stage?.remainingPx ?? 0,
+        isCalibrated: stage?.isCalibrated ?? null,
+        isPlacingTurn,
+        viewportOwner: viewportCoordinator.getOwner(),
+        scrollTop: scrollerElementRef.current?.scrollTop ?? null,
+        scrollHeight: scrollerElementRef.current?.scrollHeight ?? null,
+      }),
+    });
+    turnStageRef.current = null;
+    stageRemainingBucketRef.current = null;
+    pendingStageTrimReasonRef.current = null;
+    setTurnStage(null);
+    setIsTurnStageCalibrating(false);
+    // Placement for this Turn is over either way, and the jump may well have
+    // interrupted it mid-transaction. Leaving this marker unset would keep
+    // `hasPendingTurnStageCalibration` true for good, and that gate blocks every
+    // follow write.
+    previousStageTurnIdRef.current = latestTurnId;
+    viewportCoordinator.finishStageConsumption('turn-stage-discarded-for-jump-to-latest');
+    return true;
+  }, [activeSessionId, latestTurnId, viewportCoordinator]);
+
   const scrollToLatestEndPosition = useCallback(() => {
     onUserScrollIntent?.();
-    enterFollowOutput('jump-to-latest');
-  }, [enterFollowOutput, onUserScrollIntent]);
+    if (!discardTurnStageForJumpToLatest()) {
+      enterFollowOutput('jump-to-latest');
+      return;
+    }
+    // The Footer shrinks on the commit this call just triggered. Entering follow
+    // one frame later aims at the tail that exists rather than at the one the
+    // stage was still padding, so the jump is a single movement.
+    if (jumpToLatestFrameRef.current !== null) {
+      cancelAnimationFrame(jumpToLatestFrameRef.current);
+    }
+    jumpToLatestFrameRef.current = requestAnimationFrame(() => {
+      jumpToLatestFrameRef.current = null;
+      enterFollowOutput('jump-to-latest');
+    });
+  }, [discardTurnStageForJumpToLatest, enterFollowOutput, onUserScrollIntent]);
 
   useImperativeHandle(ref, () => ({
     scrollToTurn,
@@ -1285,6 +1533,7 @@ const VirtualMessageListSession = forwardRef<VirtualMessageListRef, VirtualMessa
         sessionId={activeSessionId}
         anchorTurnId={turnStage?.turnId ?? null}
         isSuspended={isTurnStageCalibrating || hasPendingTurnStageCalibration}
+        controllerRef={autoCollapseControllerRef}
       >
       <Virtuoso
         key={activeSessionId ?? 'no-active-session'}
