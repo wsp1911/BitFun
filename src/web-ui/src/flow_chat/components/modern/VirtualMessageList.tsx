@@ -66,6 +66,10 @@ import './VirtualMessageList.scss';
 
 const VIRTUOSO_FIRST_ITEM_INDEX_BASE = 1_000_000;
 const SEARCH_NAVIGATION_MAX_ATTEMPTS = 24;
+/** Sub-pixel residue not worth another scroll write during Turn placement. */
+const TURN_PLACEMENT_ALIGNMENT_EPSILON_PX = 0.5;
+/** Above this the new Turn is visibly detached from the header: a failure. */
+const TURN_PLACEMENT_MAX_SETTLED_OFFSET_PX = 4;
 const FLOW_CHAT_VIRTUOSO_OVERSCAN = { main: 600, reverse: 600 } as const;
 const FLOW_CHAT_VIRTUOSO_VIEWPORT_INCREASE = { top: 600, bottom: 600 } as const;
 const IDLE_HISTORY_WINDOW_BOUNDARY_STATE: Record<
@@ -281,6 +285,7 @@ const VirtualMessageListSession = forwardRef<VirtualMessageListRef, VirtualMessa
   const searchNavigationRequestIdRef = useRef(0);
   const visibleTurnUpdateFrameRef = useRef<number | null>(null);
   const stageMilestoneSettlementFrameRef = useRef<number | null>(null);
+  const turnStageUpdateFrameRef = useRef<number | null>(null);
   const resumeFollowAfterStageRef = useRef<() => void>(() => {});
 
   const virtuosoIndexStateRef = useRef({
@@ -357,6 +362,7 @@ const VirtualMessageListSession = forwardRef<VirtualMessageListRef, VirtualMessa
     // Ownership lives outside React rendering, so it stays accurate even when a
     // layout callback lands between the placement transaction's own renders.
     if (!scroller || !stage || viewportCoordinator.getOwner() === 'turn-placement') return;
+    if (!stage.isCalibrated) return;
     const next = consumeFlowChatTurnStage(
       stage,
       scroller.scrollHeight,
@@ -451,9 +457,23 @@ const VirtualMessageListSession = forwardRef<VirtualMessageListRef, VirtualMessa
     }
   }, [activeSessionId, bottomLayoutInsetPx, viewportCoordinator]);
 
+  // Consumption changes the Footer height, which the same ResizeObserver would
+  // observe again. Coalescing to one frame keeps that out of the observer's own
+  // delivery, like the other two jobs sharing the callback.
+  const scheduleTurnStageUpdate = useCallback(() => {
+    if (turnStageUpdateFrameRef.current !== null) return;
+    turnStageUpdateFrameRef.current = requestAnimationFrame(() => {
+      turnStageUpdateFrameRef.current = null;
+      updateTurnStage();
+    });
+  }, [updateTurnStage]);
+
   useEffect(() => () => {
     if (stageMilestoneSettlementFrameRef.current !== null) {
       cancelAnimationFrame(stageMilestoneSettlementFrameRef.current);
+    }
+    if (turnStageUpdateFrameRef.current !== null) {
+      cancelAnimationFrame(turnStageUpdateFrameRef.current);
     }
   }, []);
 
@@ -586,7 +606,7 @@ const VirtualMessageListSession = forwardRef<VirtualMessageListRef, VirtualMessa
   useEffect(() => {
     if (!scrollerElement) return;
     const observer = new ResizeObserver(() => {
-      updateTurnStage();
+      scheduleTurnStageUpdate();
       scheduleFollowToLatest();
       scheduleVisibleTurnInfoUpdate();
     });
@@ -594,7 +614,12 @@ const VirtualMessageListSession = forwardRef<VirtualMessageListRef, VirtualMessa
     if (content) observer.observe(content);
     observer.observe(scrollerElement);
     return () => observer.disconnect();
-  }, [scheduleFollowToLatest, scheduleVisibleTurnInfoUpdate, scrollerElement, updateTurnStage]);
+  }, [
+    scheduleFollowToLatest,
+    scheduleTurnStageUpdate,
+    scheduleVisibleTurnInfoUpdate,
+    scrollerElement,
+  ]);
 
   const getRenderedUserMessageElement = useCallback((turnId: string) => (
     Array.from(
@@ -668,6 +693,143 @@ const VirtualMessageListSession = forwardRef<VirtualMessageListRef, VirtualMessa
       setIsTurnStageCalibrating(false);
     };
 
+    const releasePlacement = () => {
+      if (turnStageRef.current?.turnId === latestTurnId) {
+        turnStageRef.current = null;
+        stageRemainingBucketRef.current = null;
+        setTurnStage(null);
+      }
+      previousStageTurnIdRef.current = latestTurnId;
+      finishCalibration();
+    };
+
+    // Each step runs one frame after the previous one so React can commit and
+    // Virtuoso can remeasure in between. Losing ownership mid-transaction
+    // abandons placement rather than writing the viewport behind its new owner.
+    const stepWhilePlacing = (run: () => void) => {
+      frame = requestAnimationFrame(() => {
+        frame = null;
+        if (cancelled) return;
+        if (viewportCoordinator.getOwner() !== 'turn-placement') {
+          releasePlacement();
+          return;
+        }
+        run();
+      });
+    };
+
+    // The user message is already rendered, so alignment is measured from the
+    // real DOM. Virtuoso's `scrollToIndex` would leave a pending location
+    // behind that it replays from its own size tree on every later
+    // remeasurement, overwriting the placed viewport.
+    const alignUserMessageToViewportTop = () => {
+      const userMessage = getRenderedUserMessageElement(latestTurnId);
+      if (!userMessage) return null;
+      const offset = userMessage.getBoundingClientRect().top
+        - scroller.getBoundingClientRect().top;
+      if (Math.abs(offset) > TURN_PLACEMENT_ALIGNMENT_EPSILON_PX) {
+        viewportCoordinator.adjustScrollTop('turn-placement', offset);
+      }
+      return offset;
+    };
+
+    const calibratePlacement = () => {
+      const currentStage = turnStageRef.current;
+      if (!currentStage || currentStage.turnId !== latestTurnId) {
+        viewportCoordinator.finishStageConsumption('turn-placement-cancelled');
+        finishCalibration();
+        return;
+      }
+
+      const maxScrollTop = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
+      const removableWithoutClamp = Math.max(0, maxScrollTop - scroller.scrollTop);
+      const finalRemainingPx = Math.max(
+        0,
+        currentStage.remainingPx - removableWithoutClamp,
+      );
+      const calibrated = calibrateFlowChatTurnStage({
+        stage: currentStage,
+        remainingPx: finalRemainingPx,
+        scrollHeightPx: scroller.scrollHeight,
+        bottomLayoutInsetPx,
+      });
+      const placedUserMessage = getRenderedUserMessageElement(latestTurnId);
+      const placedOffsetFromViewportTop = placedUserMessage
+        ? placedUserMessage.getBoundingClientRect().top - scroller.getBoundingClientRect().top
+        : null;
+
+      turnStageRef.current = calibrated;
+      stageRemainingBucketRef.current = getFlowChatTurnStageRemainingBucket(calibrated);
+      previousStageTurnIdRef.current = latestTurnId;
+      setTurnStage(calibrated);
+      if (calibrated.remainingPx > 0) {
+        viewportCoordinator.beginStageConsumption('turn-stage-calibrated');
+      } else {
+        viewportCoordinator.finishStageConsumption('turn-stage-empty-after-calibration');
+        requestAnimationFrame(() => resumeFollowAfterStageRef.current());
+      }
+      flowChatDiagnostics.trace({
+        hypothesis: 'STAGE',
+        location: 'VirtualMessageList.createTurnStage',
+        message: 'Turn stage alignment calibrated',
+        data: () => ({
+          sessionId: activeSessionId,
+          turnId: latestTurnId,
+          provisionalPx: currentStage.initialPx,
+          finalRemainingPx: calibrated.remainingPx,
+          removedPx: currentStage.initialPx - calibrated.remainingPx,
+          removableWithoutClamp,
+          baselineNaturalExtentPx: calibrated.baselineNaturalExtentPx,
+          userMessageOffsetFromViewportTop: placedOffsetFromViewportTop,
+          scrollTop: scroller.scrollTop,
+          maxScrollTop,
+          scrollHeight: scroller.scrollHeight,
+          clientHeight: scroller.clientHeight,
+          bottomLayoutInsetPx,
+          nextViewportOwner: calibrated.remainingPx > 0
+            ? 'stage-consuming'
+            : 'following',
+        }),
+      });
+      // Placement has exactly one postcondition. Assert it here so a miss is a
+      // single greppable record instead of arithmetic across three of them.
+      if (
+        placedOffsetFromViewportTop === null
+        || Math.abs(placedOffsetFromViewportTop) > TURN_PLACEMENT_MAX_SETTLED_OFFSET_PX
+      ) {
+        flowChatDiagnostics.trace({
+          hypothesis: 'STAGE',
+          location: 'VirtualMessageList.createTurnStage',
+          message: 'Turn stage placement did not reach the viewport top',
+          data: () => ({
+            sessionId: activeSessionId,
+            turnId: latestTurnId,
+            userMessageOffsetFromViewportTop: placedOffsetFromViewportTop,
+            toleratedOffsetPx: TURN_PLACEMENT_MAX_SETTLED_OFFSET_PX,
+            removableWithoutClamp,
+            provisionalPx: currentStage.initialPx,
+            stageRemainingPxAtPlacement: currentStage.remainingPx,
+            finalRemainingPx: calibrated.remainingPx,
+            scrollTop: scroller.scrollTop,
+            maxScrollTop,
+            scrollHeight: scroller.scrollHeight,
+            clientHeight: scroller.clientHeight,
+          }),
+        });
+      }
+      finishCalibration();
+    };
+
+    const correctPlacement = () => {
+      alignUserMessageToViewportTop();
+      stepWhilePlacing(calibratePlacement);
+    };
+
+    const alignPlacement = () => {
+      alignUserMessageToViewportTop();
+      stepWhilePlacing(correctPlacement);
+    };
+
     const createStage = () => {
       attempts += 1;
       const userMessage = getRenderedUserMessageElement(latestTurnId);
@@ -719,121 +881,7 @@ const VirtualMessageListSession = forwardRef<VirtualMessageListRef, VirtualMessa
         }),
       });
 
-      frame = requestAnimationFrame(() => {
-        if (viewportCoordinator.getOwner() !== 'turn-placement') {
-          if (turnStageRef.current?.turnId === latestTurnId) {
-            turnStageRef.current = null;
-            stageRemainingBucketRef.current = null;
-            setTurnStage(null);
-          }
-          previousStageTurnIdRef.current = latestTurnId;
-          finishCalibration();
-          return;
-        }
-        // The user message is already rendered, so alignment is measured from
-        // the real DOM. Virtuoso's `scrollToIndex` would leave a pending
-        // location behind that it replays from its own size tree on every
-        // later remeasurement, overwriting the placed viewport.
-        const placementUserMessage = getRenderedUserMessageElement(latestTurnId);
-        if (placementUserMessage) {
-          const offset = placementUserMessage.getBoundingClientRect().top
-            - scroller.getBoundingClientRect().top;
-          if (Math.abs(offset) > 0.5) {
-            viewportCoordinator.adjustScrollTop('turn-placement', offset);
-          }
-        }
-        frame = requestAnimationFrame(() => {
-          if (viewportCoordinator.getOwner() !== 'turn-placement') {
-            if (turnStageRef.current?.turnId === latestTurnId) {
-              turnStageRef.current = null;
-              stageRemainingBucketRef.current = null;
-              setTurnStage(null);
-            }
-            previousStageTurnIdRef.current = latestTurnId;
-            finishCalibration();
-            return;
-          }
-          const alignedUserMessage = getRenderedUserMessageElement(latestTurnId);
-          if (alignedUserMessage) {
-            const offset = alignedUserMessage.getBoundingClientRect().top
-              - scroller.getBoundingClientRect().top;
-            if (Math.abs(offset) > 0.5) {
-              viewportCoordinator.adjustScrollTop('turn-placement', offset);
-            }
-          }
-
-          frame = requestAnimationFrame(() => {
-            if (viewportCoordinator.getOwner() !== 'turn-placement') {
-              if (turnStageRef.current?.turnId === latestTurnId) {
-                turnStageRef.current = null;
-                stageRemainingBucketRef.current = null;
-                setTurnStage(null);
-              }
-              previousStageTurnIdRef.current = latestTurnId;
-              finishCalibration();
-              return;
-            }
-            const currentStage = turnStageRef.current;
-            if (!currentStage || currentStage.turnId !== latestTurnId) {
-              viewportCoordinator.finishStageConsumption('turn-placement-cancelled');
-              finishCalibration();
-              return;
-            }
-
-            const maxScrollTop = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
-            const removableWithoutClamp = Math.max(0, maxScrollTop - scroller.scrollTop);
-            const finalRemainingPx = Math.max(
-              0,
-              currentStage.remainingPx - removableWithoutClamp,
-            );
-            const calibrated = calibrateFlowChatTurnStage({
-              stage: currentStage,
-              remainingPx: finalRemainingPx,
-              scrollHeightPx: scroller.scrollHeight,
-              bottomLayoutInsetPx,
-            });
-            const placedUserMessage = getRenderedUserMessageElement(latestTurnId);
-            const placedScrollerRect = scroller.getBoundingClientRect();
-
-            turnStageRef.current = calibrated;
-            stageRemainingBucketRef.current = getFlowChatTurnStageRemainingBucket(calibrated);
-            previousStageTurnIdRef.current = latestTurnId;
-            setTurnStage(calibrated);
-            if (calibrated.remainingPx > 0) {
-              viewportCoordinator.beginStageConsumption('turn-stage-calibrated');
-            } else {
-              viewportCoordinator.finishStageConsumption('turn-stage-empty-after-calibration');
-              requestAnimationFrame(() => resumeFollowAfterStageRef.current());
-            }
-            flowChatDiagnostics.trace({
-              hypothesis: 'STAGE',
-              location: 'VirtualMessageList.createTurnStage',
-              message: 'Turn stage alignment calibrated',
-              data: () => ({
-                sessionId: activeSessionId,
-                turnId: latestTurnId,
-                provisionalPx: provisional.initialPx,
-                finalRemainingPx: calibrated.remainingPx,
-                removedPx: provisional.initialPx - calibrated.remainingPx,
-                removableWithoutClamp,
-                baselineNaturalExtentPx: calibrated.baselineNaturalExtentPx,
-                userMessageOffsetFromViewportTop: placedUserMessage
-                  ? placedUserMessage.getBoundingClientRect().top - placedScrollerRect.top
-                  : null,
-                scrollTop: scroller.scrollTop,
-                maxScrollTop,
-                scrollHeight: scroller.scrollHeight,
-                clientHeight: scroller.clientHeight,
-                bottomLayoutInsetPx,
-                nextViewportOwner: calibrated.remainingPx > 0
-                  ? 'stage-consuming'
-                  : 'following',
-              }),
-            });
-            finishCalibration();
-          });
-        });
-      });
+      stepWhilePlacing(alignPlacement);
     };
     frame = requestAnimationFrame(createStage);
     return () => {

@@ -154,10 +154,7 @@ export const MCPToolDisplay: React.FC<ToolCardProps> = ({
   const { status, toolCall, toolResult, requiresConfirmation, userConfirmed } = toolItem;
   const [isExpanded, setIsExpanded] = useState(false);
   const toolId = toolItem.id ?? toolCall?.id;
-  const { cardRootRef, applyExpandedState } = useToolCardHeightContract({
-    toolId,
-    toolName: toolItem.toolName,
-  });
+  const { cardRootRef, applyExpandedState } = useToolCardHeightContract();
   const [resolvedToolInfo, setResolvedToolInfo] = useState<ToolInfo | null>(null);
 
   const getResultData = (): MCPToolResult | null => {

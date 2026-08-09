@@ -129,10 +129,7 @@ export const ComputerUseToolCard: React.FC<ToolCardProps> = ({ toolItem, onExpan
   const { status } = toolItem;
   const [isExpanded, setIsExpanded] = useState(false);
   const toolId = toolItem.id ?? toolItem.toolCall?.id;
-  const { cardRootRef, applyExpandedState } = useToolCardHeightContract({
-    toolId,
-    toolName: toolItem.toolName,
-  });
+  const { cardRootRef, applyExpandedState } = useToolCardHeightContract();
 
   const parsed = useMemo(() => parseComputerUseResult(toolItem), [toolItem]);
   const errorMessage = parsed.errorMessage || t('toolCards.computerUse.actionFailed');

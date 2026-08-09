@@ -18,10 +18,7 @@ export const InitMiniAppDisplay: React.FC<ToolCardProps> = ({ toolItem }) => {
   const [isExpanded, setIsExpanded] = useState(false);
 
   const toolId = toolItem.id ?? toolCall?.id;
-  const { cardRootRef, applyExpandedState } = useToolCardHeightContract({
-    toolId,
-    toolName: toolItem.toolName,
-  });
+  const { cardRootRef, applyExpandedState } = useToolCardHeightContract();
 
   const name = useMemo(() => {
     if (isParamsStreaming) return (partialParams?.name as string | undefined) || '';

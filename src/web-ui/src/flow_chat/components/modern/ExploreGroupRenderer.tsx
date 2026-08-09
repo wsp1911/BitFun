@@ -73,10 +73,7 @@ export const ExploreGroupRenderer: React.FC<ExploreGroupRendererProps> = React.m
   const {
     cardRootRef,
     applyExpandedState,
-  } = useToolCardHeightContract({
-    toolId: groupId,
-    toolName: 'explore-group',
-  });
+  } = useToolCardHeightContract();
   
   const hasExplicitState = exploreGroupStates?.has(groupId) ?? false;
   const explicitExpanded = exploreGroupStates?.get(groupId) ?? false;

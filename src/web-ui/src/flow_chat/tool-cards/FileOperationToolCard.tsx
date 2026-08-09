@@ -139,10 +139,7 @@ export const FileOperationToolCard: React.FC<FileOperationToolCardProps> = ({
     dispatchToolCardToggle,
     requestAutoCollapse,
     isAutoCollapseInstant,
-  } = useToolCardHeightContract({
-    toolId,
-    toolName: toolItem.toolName,
-  });
+  } = useToolCardHeightContract();
   
   const {
     files,

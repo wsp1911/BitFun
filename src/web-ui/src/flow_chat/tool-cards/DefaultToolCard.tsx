@@ -102,10 +102,7 @@ export const DefaultToolCard: React.FC<ToolCardProps> = ({
   const { toolCall, toolResult, status, requiresConfirmation, userConfirmed } = toolItem;
   const [isExpanded, setIsExpanded] = useState(false);
   const toolId = toolItem.id ?? toolCall?.id;
-  const { cardRootRef, applyExpandedState } = useToolCardHeightContract({
-    toolId,
-    toolName: config.toolName,
-  });
+  const { cardRootRef, applyExpandedState } = useToolCardHeightContract();
 
   const filteredInput = useMemo(() => sanitizeToolInput(toolCall?.input), [toolCall?.input]);
   const hasInput = useMemo(() => hasVisibleValue(filteredInput), [filteredInput]);

@@ -89,10 +89,7 @@ export const PlanDisplay: React.FC<PlanDisplayProps> = ({
   
   const [isTodosExpanded, setIsTodosExpanded] = useState(false);
   const toolCardId = cacheKey ?? planFilePath;
-  const { cardRootRef, applyExpandedState } = useToolCardHeightContract({
-    toolId: toolCardId,
-    toolName: 'CreatePlan',
-  });
+  const { cardRootRef, applyExpandedState } = useToolCardHeightContract();
 
   const hasAutoLoaded = useRef(false);
   const saveSuccessTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);

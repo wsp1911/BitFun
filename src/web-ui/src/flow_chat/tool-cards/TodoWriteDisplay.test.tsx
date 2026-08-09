@@ -32,7 +32,11 @@ const config: ToolCardConfig = {
   displayMode: 'standard',
 };
 
-function createTodoWriteItem(status: 'pending' | 'in_progress'): FlowToolItem {
+function createTodoWriteItem(todos: Array<{
+  id: string;
+  content: string;
+  status: 'pending' | 'in_progress' | 'completed';
+}>): FlowToolItem {
   return {
     id: 'todo-tool-a',
     type: 'tool',
@@ -41,7 +45,7 @@ function createTodoWriteItem(status: 'pending' | 'in_progress'): FlowToolItem {
     status: 'streaming',
     isParamsStreaming: true,
     partialParams: {
-      todos: [{ id: 'todo-a', content: 'Implement change', status }],
+      todos,
     },
     toolCall: {
       id: 'todo-tool-a',
@@ -67,7 +71,7 @@ describe('createTodoRenderItems', () => {
   });
 });
 
-describe('TodoWriteDisplay automatic collapse', () => {
+describe('TodoWriteDisplay collapsed summary', () => {
   let container: HTMLDivElement;
   let root: Root;
 
@@ -75,45 +79,65 @@ describe('TodoWriteDisplay automatic collapse', () => {
     container = document.createElement('div');
     document.body.append(container);
     root = createRoot(container);
-    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function () {
-      const height = (this as HTMLElement).querySelector?.('.todo-expanded-body') ? 320 : 64;
-      return {
-        bottom: height,
-        height,
-        left: 0,
-        right: 300,
-        top: 0,
-        width: 300,
-        x: 0,
-        y: 0,
-        toJSON: () => ({}),
-      };
-    });
   });
 
   afterEach(() => {
     act(() => root.unmount());
     container.remove();
     vi.useRealTimers();
-    vi.restoreAllMocks();
   });
 
-  it('lets completed todo content collapse through normal layout state', () => {
+  it('stays collapsed and replaces the first task with the in-progress task', () => {
+    act(() => {
+      root.render(<TodoWriteDisplay toolItem={createTodoWriteItem([
+        { id: 'todo-a', content: 'First task', status: 'pending' },
+        { id: 'todo-b', content: 'Second task', status: 'pending' },
+      ])} config={config} />);
+    });
+    expect(container.querySelector('.todo-expanded-body')).toBeNull();
+    expect(container.querySelector('.todo-header-current')?.textContent).toBe('First task');
+
+    act(() => {
+      root.render(<TodoWriteDisplay toolItem={createTodoWriteItem([
+        { id: 'todo-a', content: 'First task', status: 'pending' },
+        { id: 'todo-b', content: 'Second task', status: 'in_progress' },
+      ])} config={config} />);
+    });
+
+    expect(container.querySelector('.todo-expanded-body')).toBeNull();
+    expect(container.querySelector('.todo-header-current')?.textContent).toBe('Second task');
+  });
+
+  it('still lets the user expand and collapse the full list manually', () => {
     vi.useFakeTimers();
     act(() => {
-      root.render(<TodoWriteDisplay toolItem={createTodoWriteItem('pending')} config={config} />);
+      root.render(<TodoWriteDisplay toolItem={createTodoWriteItem([
+        { id: 'todo-a', content: 'First task', status: 'pending' },
+        { id: 'todo-b', content: 'Second task', status: 'pending' },
+      ])} config={config} />);
     });
+    expect(container.querySelector('.todo-expanded-body')).toBeNull();
+
+    act(() => container.querySelector<HTMLElement>('[data-testid="todo-write-toggle"]')?.click());
     expect(container.querySelector('.todo-expanded-body')).not.toBeNull();
 
+    act(() => container.querySelector<HTMLElement>('[data-testid="todo-write-toggle"]')?.click());
+    expect(container.querySelector('.todo-write-host')?.getAttribute('data-bf-state')).not.toContain('expanded');
+    act(() => vi.advanceTimersByTime(FLOWCHAT_COLLAPSE_DURATION_MS));
+    expect(container.querySelector('.todo-expanded-body')).toBeNull();
+  });
+
+  it('keeps the completed summary when every task is completed', () => {
     act(() => {
-      root.render(<TodoWriteDisplay toolItem={createTodoWriteItem('in_progress')} config={config} />);
+      root.render(<TodoWriteDisplay toolItem={createTodoWriteItem([
+        { id: 'todo-a', content: 'First task', status: 'completed' },
+        { id: 'todo-b', content: 'Second task', status: 'completed' },
+      ])} config={config} />);
     });
 
-    expect(container.querySelector('.todo-expanded-body')).not.toBeNull();
-
-    act(() => {
-      vi.advanceTimersByTime(FLOWCHAT_COLLAPSE_DURATION_MS);
-    });
+    expect(container.querySelector('.todo-header-content--success')?.textContent)
+      .toBe('toolCards.todoWrite.allCompleted');
+    expect(container.querySelector('.todo-header-current')).toBeNull();
     expect(container.querySelector('.todo-expanded-body')).toBeNull();
   });
 });

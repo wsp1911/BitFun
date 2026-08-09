@@ -9,10 +9,7 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
 function Harness({ expanded }: { expanded: boolean }) {
   const [isExpanded, setIsExpanded] = React.useState(true);
-  const { cardRootRef, applyExpandedState } = useToolCardHeightContract({
-    toolId: 'tool-1',
-    toolName: 'Write',
-  });
+  const { cardRootRef, applyExpandedState } = useToolCardHeightContract();
   React.useEffect(() => {
     applyExpandedState(isExpanded, expanded, setIsExpanded);
   }, [applyExpandedState, expanded, isExpanded]);

@@ -1,10 +1,5 @@
 import { useCallback, useRef, useState } from 'react';
 import { useFlowChatAutoCollapse } from '../components/modern/useFlowChatAutoCollapse';
-interface UseToolCardHeightContractOptions {
-  toolId: string | null | undefined;
-  toolName: string;
-  getAnchorElement?: () => HTMLElement | null;
-}
 
 interface ApplyHeightContractOptions {
   onExpand?: () => void;
@@ -14,11 +9,12 @@ interface RequestAutoCollapseOptions {
   beforeCollapse?: () => void;
 }
 
-export function useToolCardHeightContract({
-  toolId: _toolId,
-  toolName: _toolName,
-  getAnchorElement: _getAnchorElement,
-}: UseToolCardHeightContractOptions) {
+/**
+ * Card-side half of the automatic collapse contract: it owns the card root ref
+ * and forwards collapse requests to the FlowChat coordinator, which decides
+ * when the card is far enough outside the viewport to collapse silently.
+ */
+export function useToolCardHeightContract() {
   const cardRootRef = useRef<HTMLDivElement>(null);
   const [isAutoCollapseInstant, setIsAutoCollapseInstant] = useState(false);
   const autoCollapse = useFlowChatAutoCollapse();

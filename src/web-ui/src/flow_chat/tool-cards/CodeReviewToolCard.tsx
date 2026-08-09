@@ -246,10 +246,7 @@ export const CodeReviewToolCard: React.FC<ToolCardProps> = React.memo(({
   const [expandedReportSectionIds, setExpandedReportSectionIds] = useState<Set<ReviewSectionId>>(new Set());
   const autoExpandedResultRef = useRef<string | null>(null);
   const toolId = toolItem.id ?? toolItem.toolCall?.id;
-  const { cardRootRef, applyExpandedState } = useToolCardHeightContract({
-    toolId,
-    toolName: toolItem.toolName,
-  });
+  const { cardRootRef, applyExpandedState } = useToolCardHeightContract();
   const [sessionRunManifest, setSessionRunManifest] = useState<ReviewTeamRunManifest | undefined>(
     () => getDeepReviewRunManifestForSession(sessionId),
   );

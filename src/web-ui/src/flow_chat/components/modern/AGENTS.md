@@ -22,6 +22,11 @@ Also follow the repository and Web UI instructions in the parent guides.
   compensation, or persistent element-anchor guards.
 - `useFlowChatViewportCoordinator` is the only module allowed to issue outer
   viewport or Virtuoso movement commands. Follow and navigation are clients.
+- `scrollToIndex` delegates a location Virtuoso replays on later remeasurement
+  and the coordinator cannot revoke, so it is limited to one-shot explicit
+  navigation. Bounded transactions align from measured DOM geometry instead.
+- State that gates a viewport write must not be mirrored into a ref during
+  render; sync it on commit so a discarded render cannot publish a stale value.
 - Keep Virtuoso `followOutput={false}`.
 - One-shot Turn/search/history navigation remains inside `VirtualMessageList`.
 - Automatic tool/thinking-card collapse is requested through the FlowChat

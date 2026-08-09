@@ -116,10 +116,7 @@ export const AskUserQuestionCard: React.FC<ToolCardProps> = ({
     applyExpandedState,
     requestAutoCollapse,
     isAutoCollapseInstant,
-  } = useToolCardHeightContract({
-    toolId,
-    toolName: toolItem.toolName,
-  });
+  } = useToolCardHeightContract();
 
   useLayoutEffect(() => {
     const shouldCompactCompleted =

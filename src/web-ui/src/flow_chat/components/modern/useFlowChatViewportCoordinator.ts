@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, type RefObject } from 'react';
+import { useCallback, useLayoutEffect, useMemo, useRef, type RefObject } from 'react';
 import type { VirtuosoHandle } from 'react-virtuoso';
 import { flowChatDiagnostics } from '@/infrastructure/diagnostics/flowChatDiagnostics';
 
@@ -28,8 +28,15 @@ export interface FlowChatViewportCoordinator {
   beginExplicitNavigation: (reason: string) => void;
   handleUserIntent: (reason: string) => void;
   scrollToTail: (writer: 'following', behavior: ScrollBehavior) => boolean;
+  /**
+   * Delegates to Virtuoso, which retains the requested location and replays it
+   * from its own size tree whenever item sizes change afterwards. The
+   * coordinator cannot revoke a delegated command, so this is restricted to
+   * one-shot navigation. Bounded transactions such as `turn-placement` must
+   * align from measured DOM geometry through `setScrollTop`/`adjustScrollTop`.
+   */
   scrollToIndex: (
-    writer: 'turn-placement' | 'explicit-navigation',
+    writer: 'explicit-navigation',
     options: { index: number; align: 'start' | 'center' | 'end'; behavior: 'auto' | 'smooth' },
   ) => boolean;
   setScrollTop: (
@@ -57,7 +64,12 @@ export function useFlowChatViewportCoordinator({
   const ownerRef = useRef<FlowChatViewportOwner>('idle');
   const followingDesiredRef = useRef(false);
   const isTurnPlacementPendingRef = useRef(isTurnPlacementPending);
-  isTurnPlacementPendingRef.current = isTurnPlacementPending;
+  // Synced on commit rather than during render: a render that React discards or
+  // interleaves must not publish its value to the callbacks that gate writes.
+  // Layout effects run before the rAF and ResizeObserver callbacks that read it.
+  useLayoutEffect(() => {
+    isTurnPlacementPendingRef.current = isTurnPlacementPending;
+  }, [isTurnPlacementPending]);
 
   const transition = useCallback((nextOwner: FlowChatViewportOwner, reason: string) => {
     const previousOwner = ownerRef.current;
@@ -138,7 +150,7 @@ export function useFlowChatViewportCoordinator({
   }, [canWrite, getLastItemIndex, scrollerRef, virtuosoRef]);
 
   const scrollToIndex = useCallback((
-    writer: 'turn-placement' | 'explicit-navigation',
+    writer: 'explicit-navigation',
     options: { index: number; align: 'start' | 'center' | 'end'; behavior: 'auto' | 'smooth' },
   ) => {
     if (!canWrite(writer) || !virtuosoRef.current) return false;

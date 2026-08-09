@@ -17,12 +17,15 @@ message near the viewport top. It is not a general scroll-compensation system.
   trimmed once and the natural-content baseline is calibrated. The coordinator
   then enters `stage-consuming`; follow movement resumes only after the stage is
   exhausted.
-- A provisional stage has no baseline, so it is inert to consumption; only a
-  calibrated stage can be consumed. Suspension during the placement transaction
-  is decided from coordinator ownership, never from a ref written during render.
+- A provisional stage and a calibrated stage are distinct types. Only the
+  calibrated one carries a baseline and only it can be consumed, so the guard is
+  enforced by the type checker rather than by a distant runtime check.
+- Suspension during the placement transaction is decided from coordinator
+  ownership, never from a ref written during render.
 - Placement aligns the already-rendered user message by measuring its own DOM
-  rect. It must not use Virtuoso's `scrollToIndex`, which retains the requested
-  location and replays it from Virtuoso's size tree on later remeasurement.
+  rect, one step per frame, abandoning the transaction if ownership changes.
+- Placement asserts its own postcondition: settling further than a few pixels
+  from the viewport top is recorded as a failure, not as a successful stage.
 - The calibrated stage remains clamped to one viewport height and never grows.
 - Natural content growth consumes the stage using a maximum-height watermark.
   Content shrink, card collapse, input shrink, and remeasurement never restore
@@ -50,6 +53,13 @@ Callers submit typed movement requests under one of these owners:
 Explicit wheel, touch, or keyboard navigation releases follow ownership;
 ordinary scroll and layout events do not. Virtuoso remeasurement is observed
 as geometry, never registered as a competing owner or compensated afterward.
+
+Ownership governs how long a command stays live, not only who may issue it.
+`scrollToIndex` delegates to Virtuoso, which retains the requested location and
+replays it from its own size tree whenever item sizes change afterwards. The
+coordinator cannot revoke a delegated command, so `scrollToIndex` is restricted
+to one-shot `explicit-navigation`. Bounded transactions align from measured DOM
+geometry through `setScrollTop`/`adjustScrollTop`, which complete immediately.
 
 `FlowChatHeader` participates in the container's normal column layout above the
 message viewport. It must not overlay the Virtuoso scroller or require a
@@ -83,8 +93,9 @@ When `app.logging.flow_chat_diagnostics` is enabled, the dedicated
 scroll or resize callback:
 
 - `STAGE`: creation, 75/50/25/0 percent consumption milestones and their
-  post-commit anchor geometry, exhaustion, creation failure, and clearing on
-  session or presentation changes.
+  post-commit anchor geometry, exhaustion, creation failure, placement that
+  settled away from the viewport top, and clearing on session or presentation
+  changes.
 - `FOLLOW`: ownership entry/exit, inactive-viewport rejection, and natural-tail
   corrections rate-limited to one entry per second.
 - `COLLAPSE`: candidate registration/cancellation, waiting-reason changes,

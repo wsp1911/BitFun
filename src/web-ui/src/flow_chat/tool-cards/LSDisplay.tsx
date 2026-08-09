@@ -24,10 +24,7 @@ export const LSDisplay: React.FC<ToolCardProps> = ({
   const { toolCall, toolResult, status } = toolItem;
   const [isExpanded, setIsExpanded] = useState(false);
   const toolId = toolItem.id ?? toolCall?.id;
-  const { cardRootRef, applyExpandedState } = useToolCardHeightContract({
-    toolId,
-    toolName: toolItem.toolName,
-  });
+  const { cardRootRef, applyExpandedState } = useToolCardHeightContract();
 
   const getDirectoryPath = (): string => {
     const path = toolCall?.input?.path;

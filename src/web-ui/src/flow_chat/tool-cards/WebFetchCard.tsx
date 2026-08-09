@@ -62,10 +62,7 @@ export const WebFetchCard: React.FC<ToolCardProps> = ({
   const { toolCall, toolResult, status } = toolItem;
   const [isExpanded, setIsExpanded] = useState(false);
   const toolId = toolItem.id ?? toolCall?.id;
-  const { cardRootRef, applyExpandedState } = useToolCardHeightContract({
-    toolId,
-    toolName: toolItem.toolName,
-  });
+  const { cardRootRef, applyExpandedState } = useToolCardHeightContract();
 
   const parsedResult = useMemo(() => parseWebFetchResult(toolItem), [toolItem]);
   const url = parsedResult?.url || toolCall?.input?.url || t('toolCards.webFetch.parsingUrl');

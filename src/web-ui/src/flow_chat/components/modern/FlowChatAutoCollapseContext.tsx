@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   type ReactNode,
@@ -58,13 +59,17 @@ export function FlowChatAutoCollapseProvider({
     anchorTurnId,
     isSuspended,
   });
-  policyRef.current = {
-    isFollowingOutput,
-    stageSpacePx,
-    bottomLayoutInsetPx,
-    anchorTurnId,
-    isSuspended,
-  };
+  // Synced on commit rather than during render, so a discarded or interleaved
+  // render cannot publish a stale policy to the rAF callbacks that read it.
+  useLayoutEffect(() => {
+    policyRef.current = {
+      isFollowingOutput,
+      stageSpacePx,
+      bottomLayoutInsetPx,
+      anchorTurnId,
+      isSuspended,
+    };
+  }, [anchorTurnId, bottomLayoutInsetPx, isFollowingOutput, isSuspended, stageSpacePx]);
 
   const evaluate = useCallback(() => {
     evaluationFrameRef.current = null;

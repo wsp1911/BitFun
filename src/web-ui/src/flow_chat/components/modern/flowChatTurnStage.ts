@@ -1,15 +1,30 @@
-export interface FlowChatTurnStageState {
+interface FlowChatTurnStageBase {
   turnId: string;
   initialPx: number;
   remainingPx: number;
+}
+
+/**
+ * A stage committed before alignment has run. Its natural-content baseline is
+ * still unknown, so it carries no extent fields and cannot be consumed.
+ */
+export interface ProvisionalFlowChatTurnStage extends FlowChatTurnStageBase {
+  isCalibrated: false;
+}
+
+/**
+ * A stage whose baseline was measured while the provisional space was still
+ * fully represented in the DOM. Only this shape can be consumed.
+ */
+export interface CalibratedFlowChatTurnStage extends FlowChatTurnStageBase {
+  isCalibrated: true;
   baselineNaturalExtentPx: number;
   maxNaturalExtentPx: number;
-  /**
-   * A provisional stage has no measured baseline yet, so its natural extent is
-   * meaningless. Consumption stays inert until alignment calibrates it.
-   */
-  isCalibrated: boolean;
 }
+
+export type FlowChatTurnStageState =
+  | ProvisionalFlowChatTurnStage
+  | CalibratedFlowChatTurnStage;
 
 export interface CreateProvisionalFlowChatTurnStageInput {
   turnId: string;
@@ -32,14 +47,12 @@ const finiteNonNegative = (value: number) => (
 export function createProvisionalFlowChatTurnStage({
   turnId,
   viewportHeightPx,
-}: CreateProvisionalFlowChatTurnStageInput): FlowChatTurnStageState {
+}: CreateProvisionalFlowChatTurnStageInput): ProvisionalFlowChatTurnStage {
   const initialPx = finiteNonNegative(viewportHeightPx);
   return {
     turnId,
     initialPx,
     remainingPx: initialPx,
-    baselineNaturalExtentPx: 0,
-    maxNaturalExtentPx: 0,
     isCalibrated: false,
   };
 }
@@ -49,7 +62,7 @@ export function calibrateFlowChatTurnStage({
   remainingPx,
   scrollHeightPx,
   bottomLayoutInsetPx,
-}: CalibrateFlowChatTurnStageInput): FlowChatTurnStageState {
+}: CalibrateFlowChatTurnStageInput): CalibratedFlowChatTurnStage {
   const calibratedRemainingPx = Math.min(
     stage.initialPx,
     finiteNonNegative(remainingPx),
@@ -70,15 +83,16 @@ export function calibrateFlowChatTurnStage({
   };
 }
 
+/**
+ * Only a calibrated stage is accepted: consuming a provisional one would count
+ * the entire pre-existing transcript as this Turn's growth. Callers holding a
+ * `FlowChatTurnStageState` must narrow on `isCalibrated` first.
+ */
 export function consumeFlowChatTurnStage(
-  stage: FlowChatTurnStageState,
+  stage: CalibratedFlowChatTurnStage,
   scrollHeightPx: number,
   bottomLayoutInsetPx: number,
-): FlowChatTurnStageState {
-  // Before calibration the baseline is still zero, so the whole pre-existing
-  // transcript would be mistaken for this Turn's growth and swallow the stage
-  // in a single call.
-  if (!stage.isCalibrated) return stage;
+): CalibratedFlowChatTurnStage {
   const naturalExtent = finiteNonNegative(
     scrollHeightPx - bottomLayoutInsetPx - stage.remainingPx,
   );

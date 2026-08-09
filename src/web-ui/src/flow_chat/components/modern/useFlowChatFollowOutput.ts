@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useRef, useState, type RefObject } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type RefObject,
+} from 'react';
 import { flowChatDiagnostics } from '@/infrastructure/diagnostics/flowChatDiagnostics';
 
 export type FollowOutputEnterReason = 'jump-to-latest' | 'new-turn' | 'streaming-resumed';
@@ -57,9 +64,15 @@ export function useFlowChatFollowOutput({
   const hasMountedRef = useRef(false);
   const lastCorrectionDiagnosticAtRef = useRef(Number.NEGATIVE_INFINITY);
 
-  isFollowingOutputRef.current = isFollowingOutput;
-  isStreamingRef.current = isStreaming;
-  isViewportActiveRef.current = isViewportActive;
+  // `enterFollowOutput`/`exitFollowOutput` write `isFollowingOutputRef` ahead of
+  // the state so the rAF loop sees the decision immediately. Reconciling all
+  // three on commit — not during render — keeps a discarded or interleaved
+  // render from publishing a stale value to that loop.
+  useLayoutEffect(() => {
+    isFollowingOutputRef.current = isFollowingOutput;
+    isStreamingRef.current = isStreaming;
+    isViewportActiveRef.current = isViewportActive;
+  }, [isFollowingOutput, isStreaming, isViewportActive]);
 
   const stopFollowFrame = useCallback(() => {
     if (followFrameRef.current !== null) {

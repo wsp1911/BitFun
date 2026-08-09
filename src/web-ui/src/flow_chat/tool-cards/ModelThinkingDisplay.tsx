@@ -52,10 +52,7 @@ export const ModelThinkingDisplay: React.FC<ModelThinkingDisplayProps> = ({
     applyExpandedState,
     requestAutoCollapse,
     isAutoCollapseInstant,
-  } = useToolCardHeightContract({
-    toolId: thinkingItem.id,
-    toolName: 'thinking',
-  });
+  } = useToolCardHeightContract();
 
   useLayoutEffect(() => {
     if (userToggledRef.current) return;

@@ -291,10 +291,7 @@ export const TerminalToolCard: React.FC<TerminalToolCardProps> = ({
     applyExpandedState,
     requestAutoCollapse,
     isAutoCollapseInstant,
-  } = useToolCardHeightContract({
-    toolId,
-    toolName: toolItem.toolName,
-  });
+  } = useToolCardHeightContract();
   const {
     begin: beginCompletionPreview,
     isActive: isCompletionPreviewActive,

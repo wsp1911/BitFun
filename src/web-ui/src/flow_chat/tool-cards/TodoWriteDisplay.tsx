@@ -2,16 +2,17 @@
  * Tool card for TodoWrite.
  */
 
-import React, { useState, useMemo, useCallback, useLayoutEffect } from 'react';
-import { ListTodo, CheckCircle2, Circle, XCircle } from 'lucide-react';
+import React, { useCallback, useMemo, useState } from 'react';
+import { CheckCircle2, Circle, ListTodo, XCircle } from 'lucide-react';
 import { TaskRunningIndicator } from '../../component-library';
 import { useTranslation } from 'react-i18next';
 import type { ToolCardProps } from '../types/flow-chat';
-import { useToolCardHeightContract } from './useToolCardHeightContract';
 import { useDialogTurnTodos } from '../hooks/useDialogTurnTodos';
 import { CompactToolCard, CompactToolCardHeader } from './CompactToolCard';
 import { ToolCardStatusSlot } from './ToolCardStatusSlot';
-import { createTodoRenderItems, type TodoLike } from './todoRenderItems';
+import type { TodoLike } from './todoRenderItems';
+import { createTodoRenderItems } from './todoRenderItems';
+import { useToolCardHeightContract } from './useToolCardHeightContract';
 import './TodoWriteDisplay.scss';
 
 export const TodoWriteDisplay: React.FC<ToolCardProps> = ({
@@ -22,18 +23,8 @@ export const TodoWriteDisplay: React.FC<ToolCardProps> = ({
 }) => {
   const { t } = useTranslation('flow-chat');
   const { status, toolResult, partialParams, isParamsStreaming } = toolItem;
-
-  const [expandedState, setExpandedState] = useState<boolean | null>(null);
-  const toolId = toolItem.id;
-  const {
-    cardRootRef,
-    applyExpandedState,
-    requestAutoCollapse,
-    isAutoCollapseInstant,
-  } = useToolCardHeightContract({
-    toolId,
-    toolName: toolItem.toolName,
-  });
+  const [isExpanded, setIsExpanded] = useState(false);
+  const { cardRootRef, applyExpandedState } = useToolCardHeightContract();
 
   const turnTodos = useDialogTurnTodos(sessionId, turnId);
 
@@ -50,16 +41,15 @@ export const TodoWriteDisplay: React.FC<ToolCardProps> = ({
     return [];
   }, [partialParams, toolResult, isParamsStreaming, turnTodos]);
 
-  const todoRenderItems = useMemo(
-    () => createTodoRenderItems(todosToDisplay),
-    [todosToDisplay],
-  );
-
   const taskStats = useMemo(() => {
     if (todosToDisplay.length === 0) return { completed: 0, total: 0 };
     const completed = todosToDisplay.filter((td) => td.status === 'completed').length;
     return { completed, total: todosToDisplay.length };
   }, [todosToDisplay]);
+  const todoRenderItems = useMemo(
+    () => createTodoRenderItems(todosToDisplay),
+    [todosToDisplay],
+  );
 
   const inProgressTasks = useMemo(
     () => todosToDisplay.filter((td) => td.status === 'in_progress'),
@@ -78,46 +68,18 @@ export const TodoWriteDisplay: React.FC<ToolCardProps> = ({
         ? { status: 'completed' as const, defaultIcon: 'status' as const }
         : { status, defaultIcon: 'tool' as const };
 
-  const desiredAutomaticExpanded = useMemo(() => {
-    return inProgressTasks.length === 0 && todosToDisplay.length > 0 && !isAllCompleted;
-  }, [inProgressTasks.length, todosToDisplay.length, isAllCompleted]);
-  const [automaticExpanded, setAutomaticExpanded] = useState(desiredAutomaticExpanded);
-
-  // Keep the currently rendered automatic state for one layout commit. This
-  // lets the shared height contract publish the collapse intent before the
-  // second synchronous commit removes the expanded body.
-  useLayoutEffect(() => {
-    if (expandedState !== null || automaticExpanded === desiredAutomaticExpanded) {
-      return;
-    }
-    if (!desiredAutomaticExpanded) {
-      return requestAutoCollapse(automaticExpanded, setAutomaticExpanded);
-    }
-    applyExpandedState(automaticExpanded, true, setAutomaticExpanded);
-  }, [
-    applyExpandedState,
-    automaticExpanded,
-    desiredAutomaticExpanded,
-    expandedState,
-    requestAutoCollapse,
-  ]);
-
-  const isExpanded = expandedState ?? automaticExpanded;
-
   const isLoading = status === 'preparing' || status === 'streaming' || status === 'running';
 
   const displayMode = config?.displayMode || 'compact';
 
   const currentDisplayTask = useMemo(() => {
     if (inProgressTasks.length > 0) return inProgressTasks[0];
-    return null;
-  }, [inProgressTasks]);
+    return todosToDisplay[0] ?? null;
+  }, [inProgressTasks, todosToDisplay]);
 
   const handleToggleExpanded = useCallback(() => {
     if (todosToDisplay.length === 0) return;
-    applyExpandedState(isExpanded, !isExpanded, (nextExpanded) => {
-      setExpandedState(nextExpanded);
-    });
+    applyExpandedState(isExpanded, !isExpanded, setIsExpanded);
   }, [applyExpandedState, isExpanded, todosToDisplay.length]);
 
   const renderTodoItem = (todo: TodoLike, key: string) => (
@@ -172,25 +134,16 @@ export const TodoWriteDisplay: React.FC<ToolCardProps> = ({
   /* ---------- Standard display mode ---------- */
 
   const hasTodos = todosToDisplay.length > 0;
-  const headerExpanded = isExpanded && hasTodos;
   const tasksLabel = t('toolCards.todoWrite.tasks');
 
-  const statsSuffix =
-    hasTodos && taskStats.total > 0 ? (
-      <span className="todo-stats todo-stats--suffix">
-        {' '}
-        ({taskStats.completed}/{taskStats.total})
-      </span>
-    ) : null;
-
-  const headerActionCollapsed =
-    hasTodos ? (
+  const headerAction =
+    hasTodos && !isExpanded ? (
       <span className="todo-header-action-cluster">
         <span className="todo-header-tasks-label">{tasksLabel}</span>
         <span className="todo-stats">({taskStats.completed}/{taskStats.total})</span>
       </span>
     ) : (
-      tasksLabel
+      isExpanded ? undefined : tasksLabel
     );
 
   const headerContent = (() => {
@@ -203,7 +156,6 @@ export const TodoWriteDisplay: React.FC<ToolCardProps> = ({
       return (
         <span data-bf-component="todo-write-display" data-bf-part="headerContent" className="todo-header-content todo-header-content--success">
           {t('toolCards.todoWrite.allCompleted')}
-          {headerExpanded ? statsSuffix : null}
         </span>
       );
     }
@@ -214,7 +166,6 @@ export const TodoWriteDisplay: React.FC<ToolCardProps> = ({
           {inProgressTasks.length > 1 && (
             <span className="todo-header-more">+{inProgressTasks.length - 1}</span>
           )}
-          {headerExpanded ? statsSuffix : null}
         </span>
       );
     }
@@ -222,14 +173,11 @@ export const TodoWriteDisplay: React.FC<ToolCardProps> = ({
       return (
         <span data-bf-component="todo-write-display" data-bf-part="headerContent" className="todo-header-content todo-header-content--muted">
           {t('toolCards.todoWrite.tasksCount', { count: todosToDisplay.length })}
-          {headerExpanded ? statsSuffix : null}
         </span>
       );
     }
     return null;
   })();
-
-  const headerAction = headerExpanded ? undefined : headerActionCollapsed;
 
   const expandedContent = hasTodos ? (
     <div data-bf-component="todo-write-display" data-bf-part="expanded" className="todo-expanded-body">
@@ -243,7 +191,7 @@ export const TodoWriteDisplay: React.FC<ToolCardProps> = ({
     <div data-bf-component="todo-write-display" data-bf-part="root" data-bf-mode="standard"
       data-bf-state={[isExpanded && 'expanded', isLoading && 'loading', isAllCompleted && 'completed'].filter(Boolean).join(' ')}
       ref={cardRootRef}
-      data-tool-card-id={toolId ?? ''}
+      data-tool-card-id={toolItem.id ?? ''}
       className={`todo-write-host mode-${displayMode} status-${status}`}
     >
       <CompactToolCard
@@ -251,6 +199,7 @@ export const TodoWriteDisplay: React.FC<ToolCardProps> = ({
         isExpanded={isExpanded && hasTodos}
         onClick={hasTodos ? handleToggleExpanded : undefined}
         clickable={hasTodos}
+        toggleTestId="todo-write-toggle"
         className="todo-write-card"
         header={
           <CompactToolCardHeader
@@ -268,7 +217,6 @@ export const TodoWriteDisplay: React.FC<ToolCardProps> = ({
           />
         }
         expandedContent={expandedContent}
-        disableExpandAnimation={isAutoCollapseInstant}
       />
     </div>
   );

@@ -199,10 +199,7 @@ export const ExecProcessToolCardView: React.FC<ExecProcessToolCardViewProps> = (
     applyExpandedState,
     requestAutoCollapse,
     isAutoCollapseInstant,
-  } = useToolCardHeightContract({
-    toolId,
-    toolName: toolItem.toolName,
-  });
+  } = useToolCardHeightContract();
   const {
     begin: beginCompletionPreview,
     isActive: isCompletionPreviewActive,

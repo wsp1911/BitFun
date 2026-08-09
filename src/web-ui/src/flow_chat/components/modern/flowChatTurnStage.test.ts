@@ -43,16 +43,18 @@ describe('flowChatTurnStage', () => {
     expect(consumeFlowChatTurnStage(exhausted, 1200, 100).remainingPx).toBe(0);
   });
 
-  it('leaves a provisional stage untouched until alignment calibrates it', () => {
+  it('keeps a provisional stage outside the consumable type', () => {
     const provisional = createProvisionalFlowChatTurnStage({
       turnId: 'turn-3',
       viewportHeightPx: 983,
     });
 
-    // Without the calibrated baseline the 326px of pre-existing transcript
-    // would count as this Turn's growth and swallow a third of the stage.
-    expect(consumeFlowChatTurnStage(provisional, 1_413, 104)).toBe(provisional);
+    expect(provisional.isCalibrated).toBe(false);
     expect(provisional.remainingPx).toBe(983);
+    // Consuming it would count the 326px of pre-existing transcript as this
+    // Turn's growth and swallow a third of the stage before alignment runs.
+    // @ts-expect-error a provisional stage carries no baseline to consume from
+    consumeFlowChatTurnStage(provisional, 1_413, 104);
   });
 
   it('calibrates a provisional viewport stage against its full geometry', () => {

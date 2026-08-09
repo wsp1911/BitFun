@@ -61,10 +61,7 @@ export const ViewImageToolCard: React.FC<ToolCardProps> = ({ toolItem, onExpand 
   const [imageFailed, setImageFailed] = useState(false);
   const didAutoExpand = useRef(Boolean(source));
   const toolId = toolItem.id ?? toolItem.toolCall?.id;
-  const { cardRootRef, applyExpandedState } = useToolCardHeightContract({
-    toolId,
-    toolName: toolItem.toolName,
-  });
+  const { cardRootRef, applyExpandedState } = useToolCardHeightContract();
 
   useLayoutEffect(() => {
     if (!source || didAutoExpand.current) return;

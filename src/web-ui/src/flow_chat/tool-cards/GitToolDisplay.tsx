@@ -42,10 +42,7 @@ export const GitToolDisplay: React.FC<ToolCardProps> = ({
   const { status, toolCall, toolResult } = toolItem;
   const [isExpanded, setIsExpanded] = useState(false);
   const toolId = toolItem.id ?? toolCall?.id;
-  const { cardRootRef, applyExpandedState } = useToolCardHeightContract({
-    toolId,
-    toolName: toolItem.toolName,
-  });
+  const { cardRootRef, applyExpandedState } = useToolCardHeightContract();
 
   const getInputData = (): GitToolInput | null => {
     if (!toolCall?.input) return null;

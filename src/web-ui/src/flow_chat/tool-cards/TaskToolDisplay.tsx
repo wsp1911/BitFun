@@ -285,10 +285,7 @@ export const TaskToolDisplay: React.FC<ToolCardProps> = ({
     applyExpandedState,
     requestAutoCollapse,
     isAutoCollapseInstant,
-  } = useToolCardHeightContract({
-    toolId,
-    toolName: toolItem.toolName,
-  });
+  } = useToolCardHeightContract();
   
   const prevStatusRef = useRef(status);
   const userToggledRef = useRef(false);
