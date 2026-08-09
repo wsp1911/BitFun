@@ -23,7 +23,6 @@ import { DotMatrixLoader, IconButton } from '../../component-library';
 import { LazyTerminalOutputRenderer } from '@/tools/terminal/components/LazyTerminalOutputRenderer';
 import { createLogger } from '@/shared/utils/logger';
 import { useToolCardHeightContract } from './useToolCardHeightContract';
-import { useToolCardCompletionGracePeriod } from './useToolCardCompletionGracePeriod';
 import { getTerminalViewState, type TerminalViewState } from './terminalToolCardState';
 import { ToolTimeoutIndicator } from './ToolTimeoutIndicator';
 import { ToolCardCopyAction, ToolCardHeaderActions } from './ToolCardHeaderActions';
@@ -67,14 +66,11 @@ function getInitialTerminalExpandedState(status: string): boolean {
 
 function getAutoExpandedStateForTerminalStatus(
   status: string,
-  isLastItem: boolean | undefined,
-  keepTailPreview: boolean,
 ): boolean | null {
   if (isCollapsedTerminalStatus(status)) {
-    // A card that was already mounted while live keeps its compact output
-    // visible briefly at the tail. It collapses when a newer conversation
-    // item takes over or when the completion preview grace period expires.
-    return isLastItem === true && keepTailPreview ? null : false;
+    // Requesting the collapse right away is safe: the FlowChat coordinator
+    // holds it until the card leaves the viewport.
+    return false;
   }
 
   if (status === 'pending_confirmation') {
@@ -242,7 +238,6 @@ export const TerminalToolCard: React.FC<TerminalToolCardProps> = ({
   toolItem,
   onExpand,
   terminalSessionId: propTerminalSessionId,
-  isLastItem,
 }) => {
   const { t } = useTranslation('flow-chat');
   const toolCall = toolItem.toolCall;
@@ -291,17 +286,9 @@ export const TerminalToolCard: React.FC<TerminalToolCardProps> = ({
     applyExpandedState,
     requestAutoCollapse,
     isAutoCollapseInstant,
+    hasUserExpandedSettled,
+    markUserExpandedSettled,
   } = useToolCardHeightContract();
-  const {
-    begin: beginCompletionPreview,
-    isActive: isCompletionPreviewActive,
-  } = useToolCardCompletionGracePeriod({
-    eligible:
-      isCollapsedTerminalStatus(status) &&
-      isLastItem === true &&
-      isExpanded &&
-      !userToggledRef.current,
-  });
   const applyTerminalExpandedState = useCallback((nextExpanded: boolean) => {
     if (nextExpanded === isExpanded) {
       return;
@@ -312,8 +299,11 @@ export const TerminalToolCard: React.FC<TerminalToolCardProps> = ({
 
   const toggleExpanded = useCallback(() => {
     userToggledRef.current = true;
+    if (!isExpanded && isCollapsedTerminalStatus(status)) {
+      markUserExpandedSettled();
+    }
     applyTerminalExpandedState(!isExpanded);
-  }, [applyTerminalExpandedState, isExpanded]);
+  }, [applyTerminalExpandedState, isExpanded, markUserExpandedSettled, status]);
 
   const [interruptRequested, setInterruptRequested] = useState(false);
   const [isCommandTruncated, setIsCommandTruncated] = useState(false);
@@ -330,8 +320,7 @@ export const TerminalToolCard: React.FC<TerminalToolCardProps> = ({
       return;
     }
 
-    const keepTailPreview = isCollapsedTerminalStatus(status) && beginCompletionPreview();
-    const nextExpanded = getAutoExpandedStateForTerminalStatus(status, isLastItem, keepTailPreview);
+    const nextExpanded = getAutoExpandedStateForTerminalStatus(status);
     if (nextExpanded !== null) {
       if (!nextExpanded) {
         return requestAutoCollapse(isExpanded, setIsExpandedState);
@@ -340,9 +329,6 @@ export const TerminalToolCard: React.FC<TerminalToolCardProps> = ({
     }
   }, [
     applyTerminalExpandedState,
-    beginCompletionPreview,
-    isCompletionPreviewActive,
-    isLastItem,
     isExpanded,
     requestAutoCollapse,
     status,
@@ -590,11 +576,14 @@ export const TerminalToolCard: React.FC<TerminalToolCardProps> = ({
     />
   );
 
+  // A settled card the coordinator has not collapsed yet keeps the streaming
+  // row count, so completion does not grow the card under a reader who never
+  // asked for the full output. Tail position is irrelevant: the coordinator,
+  // not the item's place in the transcript, decides when it goes away.
   const compactSettledPreview =
     isExpanded &&
-    isLastItem === true &&
     isCollapsedTerminalStatus(status) &&
-    !userToggledRef.current;
+    !hasUserExpandedSettled;
   const expandedContent = isExpanded
     ? renderTerminalExpandedContent({
         viewState,

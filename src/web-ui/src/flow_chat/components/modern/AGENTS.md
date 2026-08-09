@@ -32,6 +32,9 @@ Also follow the repository and Web UI instructions in the parent guides.
 - Automatic tool/thinking-card collapse is requested through the FlowChat
   coordinator and executes only when the card is fully outside the viewport.
   Manual collapse remains immediate and animated.
+- A card never changes its own height in the viewport. Two-size cards stay
+  compact through streaming and through the pending-collapse window, and grow
+  only on `markUserExpandedSettled()` from a user expand after the work settled.
 - Footer height represents the current input-stack layout plus the single Turn
   stage and real footer content such as history state and `RuntimeStatusSlot`.
 - Stable virtual-item keys and projection identity must be preserved.

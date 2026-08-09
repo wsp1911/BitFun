@@ -72,6 +72,18 @@
   align-items: center;
   gap: 10px;
   flex-shrink: 0;
+  /*
+   * The submit button leaves once the answer is settled, but the card is still
+   * in the viewport waiting for the coordinator, so the row must not shrink
+   * under the reader. Matches the small Button height.
+   */
+  min-height: 32px;
+
+  /* Only a divider when it actually follows the submit button. */
+  .tool-status:first-child {
+    padding-left: 0;
+    border-left: none;
+  }
 }
 
 .card-footer-row {

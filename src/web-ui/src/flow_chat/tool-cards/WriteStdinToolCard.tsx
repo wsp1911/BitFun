@@ -7,7 +7,6 @@ import { buildWriteStdinCardModel } from './execProcessToolCardModel';
 export const WriteStdinToolCard: React.FC<ToolCardProps> = ({
   toolItem,
   onExpand,
-  isLastItem,
 }) => {
   const { t } = useTranslation('flow-chat');
   const model = useMemo(
@@ -20,7 +19,6 @@ export const WriteStdinToolCard: React.FC<ToolCardProps> = ({
       toolItem={toolItem}
       model={model}
       onExpand={onExpand}
-      isLastItem={isLastItem}
     />
   );
 };

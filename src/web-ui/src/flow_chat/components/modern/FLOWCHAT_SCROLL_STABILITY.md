@@ -79,6 +79,18 @@ not the containing Virtuoso item:
 - Any viewport intersection prevents automatic collapse.
 - Candidates execute oldest-first, one at a time, with two animation frames
   allowed for React commit and Virtuoso remeasurement before the next one.
+- A card requests collapse as soon as its own state says it should be compact.
+  Deciding *when* that happens belongs to the coordinator, so cards must not
+  delay the request behind a local timer or grace period.
+- A card with a compact and a comfortable size grows only when the user expands
+  it after the work settled, reported through
+  `useToolCardHeightContract.markUserExpandedSettled()`. Streaming and the
+  window where the coordinator is holding a collapse request both use the
+  compact size, so a card never changes its own height in the viewport.
+- Deferral keeps interactive cards on screen past the point where their work
+  settled. Such a card must retire an action it can no longer perform while
+  holding the row that carried it, so the affordance disappears without the
+  card shrinking under the reader.
 - Coordinated automatic collapse is instant. User-triggered expand/collapse
   retains the local smooth animation.
 

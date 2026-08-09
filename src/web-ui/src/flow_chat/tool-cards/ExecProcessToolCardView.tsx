@@ -12,7 +12,6 @@ import { CopyableTextPreview } from '../components/CopyableTextPreview';
 import { ToolTimeoutIndicator } from './ToolTimeoutIndicator';
 import { DotMatrixLoader } from '../../component-library';
 import { useToolCardHeightContract } from './useToolCardHeightContract';
-import { useToolCardCompletionGracePeriod } from './useToolCardCompletionGracePeriod';
 import { formatSessionViewPreviewText } from '../utils/sessionViewPreview';
 import './ExecProcessToolCard.scss';
 
@@ -43,7 +42,6 @@ interface ExecProcessToolCardViewProps {
   toolItem: FlowToolItem;
   model: ExecProcessCardModel;
   onExpand?: () => void;
-  isLastItem?: boolean;
 }
 
 function isCollapsedStatus(status: string): boolean {
@@ -56,11 +54,11 @@ function getInitialExpandedState(status: string): boolean {
 
 function getAutoExpandedStateForStatus(
   status: string,
-  isLastItem: boolean | undefined,
-  keepTailPreview: boolean,
 ): boolean | null {
   if (isCollapsedStatus(status)) {
-    return isLastItem === true && keepTailPreview ? null : false;
+    // Requesting the collapse right away is safe: the FlowChat coordinator
+    // holds it until the card leaves the viewport.
+    return false;
   }
 
   if (status === 'preparing' || status === 'streaming' || status === 'running' || status === 'receiving') {
@@ -165,7 +163,6 @@ export const ExecProcessToolCardView: React.FC<ExecProcessToolCardViewProps> = (
   toolItem,
   model,
   onExpand,
-  isLastItem,
 }) => {
   const { t } = useTranslation('flow-chat');
   const status = toolItem.status || 'pending';
@@ -199,17 +196,9 @@ export const ExecProcessToolCardView: React.FC<ExecProcessToolCardViewProps> = (
     applyExpandedState,
     requestAutoCollapse,
     isAutoCollapseInstant,
+    hasUserExpandedSettled,
+    markUserExpandedSettled,
   } = useToolCardHeightContract();
-  const {
-    begin: beginCompletionPreview,
-    isActive: isCompletionPreviewActive,
-  } = useToolCardCompletionGracePeriod({
-    eligible:
-      isCollapsedStatus(status) &&
-      isLastItem === true &&
-      isExpanded &&
-      !userToggledRef.current,
-  });
 
   const applyExecExpandedState = useCallback((nextExpanded: boolean) => {
     if (nextExpanded === isExpanded) {
@@ -221,16 +210,18 @@ export const ExecProcessToolCardView: React.FC<ExecProcessToolCardViewProps> = (
 
   const toggleExpanded = useCallback(() => {
     userToggledRef.current = true;
+    if (!isExpanded && isCollapsedStatus(status)) {
+      markUserExpandedSettled();
+    }
     applyExecExpandedState(!isExpanded);
-  }, [applyExecExpandedState, isExpanded]);
+  }, [applyExecExpandedState, isExpanded, markUserExpandedSettled, status]);
 
   useLayoutEffect(() => {
     if (userToggledRef.current) {
       return;
     }
 
-    const keepTailPreview = isCollapsedStatus(status) && beginCompletionPreview();
-    const nextExpanded = getAutoExpandedStateForStatus(status, isLastItem, keepTailPreview);
+    const nextExpanded = getAutoExpandedStateForStatus(status);
     if (nextExpanded !== null) {
       if (!nextExpanded) {
         return requestAutoCollapse(isExpanded, setIsExpandedState);
@@ -239,19 +230,19 @@ export const ExecProcessToolCardView: React.FC<ExecProcessToolCardViewProps> = (
     }
   }, [
     applyExecExpandedState,
-    beginCompletionPreview,
-    isCompletionPreviewActive,
-    isLastItem,
     isExpanded,
     requestAutoCollapse,
     status,
   ]);
 
+  // A settled card the coordinator has not collapsed yet keeps the streaming
+  // row count, so completion does not grow the card under a reader who never
+  // asked for the full output. Tail position is irrelevant: the coordinator,
+  // not the item's place in the transcript, decides when it goes away.
   const compactSettledPreview =
     isExpanded &&
-    isLastItem === true &&
     isCollapsedStatus(status) &&
-    !userToggledRef.current;
+    !hasUserExpandedSettled;
   const maxRows = isRunning || compactSettledPreview
     ? EXEC_OUTPUT_STREAMING_MAX_ROWS
     : EXEC_OUTPUT_EXPANDED_MAX_ROWS;

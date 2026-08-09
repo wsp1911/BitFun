@@ -5,6 +5,7 @@ import { JSDOM } from 'jsdom';
 
 import { FileOperationToolCard } from './FileOperationToolCard';
 import { FlowChatContext } from '../components/modern/FlowChatContext';
+import { FlowChatAutoCollapseContext } from '../components/modern/useFlowChatAutoCollapse';
 import type { FlowToolItem, Session, ToolCardConfig } from '../types/flow-chat';
 import {
   clearHistorySessionOpenTransition,
@@ -822,7 +823,7 @@ describe('FileOperationToolCard', () => {
     expect(container.textContent).toContain(`${fullContent.length} chars received`);
   });
 
-  it('retains a compact completed write preview until newer content supersedes it', async () => {
+  it('collapses a completed write card immediately without a collapse coordinator', async () => {
     const config: ToolCardConfig = {
       toolName: 'Write',
       displayName: 'Write',
@@ -888,32 +889,90 @@ describe('FileOperationToolCard', () => {
       );
     });
 
-    expect(container.querySelector('[data-testid="chat-file-change-preview"]')).not.toBeNull();
-    expect(mocks.codePreviewProps).toHaveLength(1);
-    expect(mocks.codePreviewProps[0]).toMatchObject({
-      isStreaming: false,
-      maxHeight: 88,
-    });
-
-    await act(async () => {
-      root.render(
-        <FileOperationToolCard
-          toolItem={completedToolItem}
-          config={config}
-          sessionId="session-1"
-          isLastItem={false}
-        />
-      );
-    });
-
-    // Auto-collapse animates closed; wait for SmoothHeightCollapse to unmount children.
+    // Outside the FlowChat provider the collapse request runs straight away,
+    // which is the documented fallback for cards rendered elsewhere.
     expect(container.querySelector('[data-testid="chat-file-change-card"]')?.getAttribute('data-expanded')).toBe('false');
+    // Auto-collapse animates closed; wait for SmoothHeightCollapse to unmount children.
     await act(async () => {
       await new Promise((resolve) => {
         window.setTimeout(resolve, 350);
       });
     });
     expect(container.querySelector('[data-testid="chat-file-change-preview"]')).toBeNull();
+  });
+
+  it('keeps the streaming preview height while a deferred auto-collapse leaves the card expanded', async () => {
+    const config: ToolCardConfig = {
+      toolName: 'Write',
+      displayName: 'Write',
+      icon: 'WRITE',
+      requiresConfirmation: false,
+      resultDisplayType: 'detailed',
+      description: 'Write a file',
+      displayMode: 'standard',
+    };
+    const streamingToolItem: FlowToolItem = {
+      id: 'tool-1',
+      type: 'tool',
+      toolName: 'Write',
+      status: 'streaming',
+      isParamsStreaming: true,
+      toolCall: {
+        id: 'call-1',
+        name: 'Write',
+        input: {
+          file_path: 'src/generated.ts',
+          content: 'line 1\nline 2\nline 3\nline 4\nline 5\nline 6',
+        },
+      },
+      partialParams: {
+        file_path: 'src/generated.ts',
+        content: 'line 1\nline 2\nline 3\nline 4\nline 5\nline 6',
+      },
+    } as FlowToolItem;
+    const completedToolItem: FlowToolItem = {
+      ...streamingToolItem,
+      status: 'completed',
+      isParamsStreaming: false,
+      toolResult: {
+        success: true,
+        result: {
+          file_path: 'src/generated.ts',
+        },
+      },
+    } as FlowToolItem;
+
+    // The coordinator accepts the collapse request but never runs it, which is
+    // what happens while the card is still inside the viewport.
+    const deferredAutoCollapse = {
+      isManaged: true,
+      request: () => () => undefined,
+    };
+    const renderCard = (toolItem: FlowToolItem) => (
+      <FlowChatAutoCollapseContext.Provider value={deferredAutoCollapse}>
+        <FileOperationToolCard
+          toolItem={toolItem}
+          config={config}
+          sessionId="session-1"
+          isLastItem
+        />
+      </FlowChatAutoCollapseContext.Provider>
+    );
+
+    await act(async () => {
+      root.render(renderCard(streamingToolItem));
+    });
+    mocks.inlineDiffPreviewProps = [];
+    await act(async () => {
+      root.render(renderCard(completedToolItem));
+    });
+
+    expect(
+      container.querySelector('[data-testid="chat-file-change-card"]')?.getAttribute('data-expanded'),
+    ).toBe('true');
+    expect(mocks.inlineDiffPreviewProps.length).toBeGreaterThan(0);
+    expect(mocks.inlineDiffPreviewProps.map(props => props.maxHeight)).not.toContain(330);
+    expect(mocks.inlineDiffPreviewProps.at(-1)).toMatchObject({ maxHeight: 88 });
   });
 
   it('uses the larger diff preview height after a completed write card is manually expanded', async () => {

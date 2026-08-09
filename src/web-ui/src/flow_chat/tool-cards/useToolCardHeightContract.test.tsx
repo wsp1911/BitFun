@@ -41,6 +41,24 @@ describe('useToolCardHeightContract', () => {
     window.removeEventListener('tool-card-toggle', handleToggle);
   });
 
+  it('only reports a user expand once the card marks itself settled', () => {
+    let markSettled = () => {};
+    let observed: boolean | null = null;
+
+    function SettledHarness() {
+      const { hasUserExpandedSettled, markUserExpandedSettled } = useToolCardHeightContract();
+      markSettled = markUserExpandedSettled;
+      observed = hasUserExpandedSettled;
+      return null;
+    }
+
+    act(() => root.render(<SettledHarness />));
+    expect(observed).toBe(false);
+
+    act(() => markSettled());
+    expect(observed).toBe(true);
+  });
+
   it('does not emit a pre-collapse viewport compensation event', () => {
     const handleCollapseIntent = vi.fn();
     window.addEventListener('flowchat:tool-card-collapse-intent', handleCollapseIntent);

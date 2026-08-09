@@ -103,11 +103,19 @@ export const AskUserQuestionCard: React.FC<ToolCardProps> = ({
     isParamsStreaming,
     status
   );
-  
+
   const [answers, setAnswers] = useState<Record<number, string | string[]>>({});
   const [otherInputs, setOtherInputs] = useState<Record<number, string>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSubmitted, setIsSubmitted] = useState(false);
+  /**
+   * The answer is either in flight to the backend or already recorded, so
+   * there is nothing left to submit. The card keeps the answer form while it
+   * is still inside the viewport — the coordinator decides when it becomes the
+   * compact summary — so the footer row stays, but its action slot must stop
+   * offering a submit that would be rejected.
+   */
+  const isAnswerSettled = isSubmitted || status === 'completed';
   const [isExpanded, setIsExpanded] = useState(false);
   const [showCompletedSummary, setShowCompletedSummary] = useState(status === 'completed');
   const toolId = toolItem.id ?? toolCall?.id;
@@ -175,7 +183,7 @@ export const AskUserQuestionCard: React.FC<ToolCardProps> = ({
   }, []);
 
   const handleSubmit = useCallback(async () => {
-    if (!isAllAnswered() || isSubmitting || isSubmitted) return;
+    if (!isAllAnswered() || isSubmitting || isAnswerSettled) return;
 
     const toolId = toolItem.id;
     setIsSubmitting(true);
@@ -205,7 +213,7 @@ export const AskUserQuestionCard: React.FC<ToolCardProps> = ({
     } finally {
       setIsSubmitting(false);
     }
-  }, [toolItem.id, answers, otherInputs, questions.length, isAllAnswered, isSubmitting, isSubmitted]);
+  }, [toolItem.id, answers, otherInputs, questions.length, isAllAnswered, isSubmitting, isAnswerSettled]);
 
   const getStatusIcon = () => {
     if (status === 'completed') {
@@ -265,7 +273,7 @@ export const AskUserQuestionCard: React.FC<ToolCardProps> = ({
                     value={option.label}
                     checked={Array.isArray(answer) && answer.includes(option.label)}
                     onChange={(e) => handleMultiChange(questionIndex, option.label, e.target.checked)}
-                    disabled={isSubmitted || status === 'completed' || Boolean(isParamsStreaming)}
+                    disabled={isAnswerSettled || Boolean(isParamsStreaming)}
                   />
                   <span className="custom-checkbox" />
                 </>
@@ -277,7 +285,7 @@ export const AskUserQuestionCard: React.FC<ToolCardProps> = ({
                     value={option.label}
                     checked={answer === option.label}
                     onChange={(e) => handleSingleChange(questionIndex, e.target.value)}
-                    disabled={isSubmitted || status === 'completed' || Boolean(isParamsStreaming)}
+                    disabled={isAnswerSettled || Boolean(isParamsStreaming)}
                   />
                   <span className="custom-radio" />
                 </>
@@ -303,7 +311,7 @@ export const AskUserQuestionCard: React.FC<ToolCardProps> = ({
                         handleMultiChange(questionIndex, 'Other', true);
                       }
                     }}
-                    disabled={isSubmitted || status === 'completed' || Boolean(isParamsStreaming)}
+                    disabled={isAnswerSettled || Boolean(isParamsStreaming)}
                   />
                   <span className="custom-checkbox" />
                 </>
@@ -315,7 +323,7 @@ export const AskUserQuestionCard: React.FC<ToolCardProps> = ({
                     value="Other"
                     checked={false}
                     onChange={() => handleSingleChange(questionIndex, 'Other')}
-                    disabled={isSubmitted || status === 'completed' || Boolean(isParamsStreaming)}
+                    disabled={isAnswerSettled || Boolean(isParamsStreaming)}
                   />
                   <span className="custom-radio" />
                 </>
@@ -339,7 +347,7 @@ export const AskUserQuestionCard: React.FC<ToolCardProps> = ({
                         handleMultiChange(questionIndex, 'Other', false);
                       }
                     }}
-                    disabled={isSubmitted || status === 'completed' || Boolean(isParamsStreaming)}
+                    disabled={isAnswerSettled || Boolean(isParamsStreaming)}
                   />
                   <span className="custom-checkbox" />
                 </>
@@ -351,7 +359,7 @@ export const AskUserQuestionCard: React.FC<ToolCardProps> = ({
                     value="Other"
                     checked={true}
                     onChange={() => {}}
-                    disabled={isSubmitted || status === 'completed' || Boolean(isParamsStreaming)}
+                    disabled={isAnswerSettled || Boolean(isParamsStreaming)}
                   />
                   <span className="custom-radio" />
                 </>
@@ -362,7 +370,7 @@ export const AskUserQuestionCard: React.FC<ToolCardProps> = ({
                 placeholder={t('toolCards.askUser.pleaseSpecify')}
                 value={otherInput}
                 onChange={(e) => handleOtherInputChange(questionIndex, e.target.value)}
-                disabled={isSubmitted || status === 'completed' || Boolean(isParamsStreaming)}
+                disabled={isAnswerSettled || Boolean(isParamsStreaming)}
                 autoFocus
               />
             </div>
@@ -453,24 +461,26 @@ export const AskUserQuestionCard: React.FC<ToolCardProps> = ({
 
           <div className="card-footer-row" data-bf-component="ask-user-question-card" data-bf-part="footer">
             <div className="footer-actions">
-              <Button
-                variant="primary"
-                size="small"
-                className="submit-button"
-                onClick={handleSubmit}
-                disabled={!isAllAnswered() || isSubmitting || Boolean(isParamsStreaming)}
-                isLoading={isSubmitting}
-                title={!isAllAnswered() ? t('toolCards.askUser.answerAllBeforeSubmit') : ""}
-              >
-                {isSubmitting ? (
-                  <span>{t('toolCards.askUser.submitting')}</span>
-                ) : (
-                  <>
-                    <ArrowUp size={14} />
-                    <span>{t('toolCards.askUser.submit')}</span>
-                  </>
-                )}
-              </Button>
+              {!isAnswerSettled && (
+                <Button
+                  variant="primary"
+                  size="small"
+                  className="submit-button"
+                  onClick={handleSubmit}
+                  disabled={!isAllAnswered() || isSubmitting || Boolean(isParamsStreaming)}
+                  isLoading={isSubmitting}
+                  title={!isAllAnswered() ? t('toolCards.askUser.answerAllBeforeSubmit') : ""}
+                >
+                  {isSubmitting ? (
+                    <span>{t('toolCards.askUser.submitting')}</span>
+                  ) : (
+                    <>
+                      <ArrowUp size={14} />
+                      <span>{t('toolCards.askUser.submit')}</span>
+                    </>
+                  )}
+                </Button>
+              )}
               <div className="tool-status" data-bf-component="ask-user-question-card" data-bf-part="status">
                 {getStatusIcon()}
                 <span className="status-text">{getStatusText()}</span>

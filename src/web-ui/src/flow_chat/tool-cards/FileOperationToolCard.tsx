@@ -37,7 +37,6 @@ import { diffLines } from 'diff';
 import { createLogger } from '@/shared/utils/logger';
 import { CompactToolCard, CompactToolCardHeader } from './CompactToolCard';
 import { useToolCardHeightContract } from './useToolCardHeightContract';
-import { useToolCardCompletionGracePeriod } from './useToolCardCompletionGracePeriod';
 import { useTypewriter } from '../hooks/useTypewriter';
 import { useReportTypewriterReveal } from '../hooks/typewriterRevealGateContext';
 import { hasNonFileUriScheme } from '@/shared/utils/pathUtils';
@@ -59,6 +58,10 @@ import './FileOperationToolCard.scss';
 
 const log = createLogger('FileOperationToolCard');
 const FILE_OPERATION_STREAMING_MAX_HEIGHT = 4 * 22; // 88px – compact while streaming
+// Reserved for a diff the user opened deliberately. Automatic collapse used to
+// run the instant a card completed, so this taller window could only ever be
+// reached by a manual expand. Deferred collapse made the automatic expanded
+// state visible, so the restriction is now explicit instead of implicit.
 const FILE_OPERATION_DIFF_MAX_HEIGHT = 15 * 22;     // 330px – comfortable diff reading when expanded
 
 function stringPath(value: unknown): string {
@@ -110,7 +113,6 @@ export const FileOperationToolCard: React.FC<FileOperationToolCardProps> = ({
   sessionId,
   onOpenInEditor,
   displayContext,
-  isLastItem,
 }) => {
   const { t } = useTranslation('flow-chat');
   const {
@@ -126,7 +128,6 @@ export const FileOperationToolCard: React.FC<FileOperationToolCardProps> = ({
   
   const [isErrorExpanded, setIsErrorExpanded] = useState(false);
   const [isContentExpanded, setIsContentExpanded] = useState(status !== 'completed');
-  const [retainLiveCompletionPreview, setRetainLiveCompletionPreview] = useState(false);
   const [operationDiffStats, setOperationDiffStats] = useState<{ additions: number; deletions: number } | null>(null);
   
   const hasInitializedCompletionEffectRef = useRef(false);
@@ -139,6 +140,8 @@ export const FileOperationToolCard: React.FC<FileOperationToolCardProps> = ({
     dispatchToolCardToggle,
     requestAutoCollapse,
     isAutoCollapseInstant,
+    hasUserExpandedSettled,
+    markUserExpandedSettled,
   } = useToolCardHeightContract();
   
   const {
@@ -290,18 +293,6 @@ export const FileOperationToolCard: React.FC<FileOperationToolCardProps> = ({
   }, [status, toolItem.toolName, writeContentCharCount]);
   
   const isFailed = status === 'error' || (toolResult && 'success' in toolResult && !toolResult.success);
-  const {
-    begin: beginCompletionPreview,
-    isActive: isCompletionPreviewActive,
-  } = useToolCardCompletionGracePeriod({
-    eligible:
-      status === 'completed' &&
-      !isFailed &&
-      isLastItem === true &&
-      isContentExpanded &&
-      !userToggledContentRef.current,
-    isRevealing: writeTypewriter.isRevealing || editTypewriter.isRevealing,
-  });
   const rawErrorMessage = (() => {
     if (toolResult && 'error' in toolResult) {
       return toolResult.error;
@@ -385,19 +376,25 @@ export const FileOperationToolCard: React.FC<FileOperationToolCardProps> = ({
   ) => {
     if (reason === 'manual') {
       userToggledContentRef.current = true;
-      setRetainLiveCompletionPreview(false);
+      if (nextExpanded && status === 'completed') {
+        markUserExpandedSettled();
+      }
     }
     if (reason === 'auto' && !nextExpanded) {
-      return requestAutoCollapse(isContentExpanded, setIsContentExpanded, {
-        beforeCollapse: () => setRetainLiveCompletionPreview(false),
-      });
+      return requestAutoCollapse(isContentExpanded, setIsContentExpanded);
     }
     applyHeightContractExpandedState(
       isContentExpanded,
       nextExpanded,
       setIsContentExpanded,
     );
-  }, [applyHeightContractExpandedState, isContentExpanded, requestAutoCollapse]);
+  }, [
+    applyHeightContractExpandedState,
+    isContentExpanded,
+    markUserExpandedSettled,
+    requestAutoCollapse,
+    status,
+  ]);
 
   const applyErrorExpandedState = useCallback((nextExpanded: boolean) => {
     applyHeightContractExpandedState(
@@ -419,27 +416,12 @@ export const FileOperationToolCard: React.FC<FileOperationToolCardProps> = ({
       return;
     }
 
-    if (status === 'completed' && !isFailed) {
-      if (isLastItem === true && isContentExpanded) {
-        if (beginCompletionPreview()) {
-          setRetainLiveCompletionPreview(true);
-          return;
-        }
-      }
-
-      setRetainLiveCompletionPreview(false);
-      return applyContentExpandedState(false, 'auto');
-    }
-
-    setRetainLiveCompletionPreview(false);
-    applyContentExpandedState(true, 'auto');
+    // Requesting the collapse at completion is safe to do immediately: the
+    // FlowChat coordinator holds it until the card leaves the viewport.
+    applyContentExpandedState(!(status === 'completed' && !isFailed), 'auto');
   }, [
     applyContentExpandedState,
-    beginCompletionPreview,
-    isCompletionPreviewActive,
-    isContentExpanded,
     isFailed,
-    isLastItem,
     status,
   ]);
 
@@ -512,30 +494,24 @@ export const FileOperationToolCard: React.FC<FileOperationToolCardProps> = ({
   }, [sessionId, toolCall?.id, status, isFailed]);
 
   const isLoading = status === 'preparing' || status === 'streaming' || status === 'running';
+  // An expanded state the card reached on its own keeps the streaming height, so
+  // completion swaps the preview variant without also moving the card's bottom
+  // edge under a reader who never asked for the diff.
   const shouldUseExpandedDiffPreviewHeight =
     status === 'completed' &&
     isContentExpanded &&
-    !retainLiveCompletionPreview;
-  const keepLiveEditPreview =
-    retainLiveCompletionPreview &&
-    toolItem.toolName === 'Edit' &&
-    Boolean(newStringContent);
-  const keepLiveWritePreview =
-    retainLiveCompletionPreview &&
-    toolItem.toolName === 'Write' &&
-    Boolean(contentPreview);
+    hasUserExpandedSettled;
   const previewVariant = useMemo(() => {
     if (toolItem.toolName === 'Edit') {
       // Keep streaming-code until typewriter drains so completion does not snap
       // the remaining characters into the diff view.
-      if ((status !== 'completed' || editTypewriter.isRevealing || keepLiveEditPreview) && newStringContent) {
+      if ((status !== 'completed' || editTypewriter.isRevealing) && newStringContent) {
         return 'streaming-code';
       }
       if (
         status === 'completed'
         && !isParamsStreaming
         && !editTypewriter.isRevealing
-        && !keepLiveEditPreview
         && (oldStringContent || newStringContent)
       ) {
         return 'completed-diff';
@@ -543,14 +519,13 @@ export const FileOperationToolCard: React.FC<FileOperationToolCardProps> = ({
     }
 
     if (toolItem.toolName === 'Write') {
-      if ((status !== 'completed' || writeTypewriter.isRevealing || keepLiveWritePreview) && contentPreview) {
+      if ((status !== 'completed' || writeTypewriter.isRevealing) && contentPreview) {
         return 'streaming-code';
       }
       if (
         status === 'completed'
         && !isParamsStreaming
         && !writeTypewriter.isRevealing
-        && !keepLiveWritePreview
         && contentPreview
       ) {
         return 'completed-diff';
@@ -562,8 +537,6 @@ export const FileOperationToolCard: React.FC<FileOperationToolCardProps> = ({
     contentPreview,
     editTypewriter.isRevealing,
     isParamsStreaming,
-    keepLiveEditPreview,
-    keepLiveWritePreview,
     newStringContent,
     oldStringContent,
     status,
@@ -896,110 +869,44 @@ export const FileOperationToolCard: React.FC<FileOperationToolCardProps> = ({
     }
   }, []);
 
+  // Keyed off `previewVariant` so the rendered preview cannot disagree with the
+  // variant the rest of the card reasons about.
   const renderExpandedContent = () => {
-    if (isFailed) return null;
+    if (isFailed || previewVariant === 'none') return null;
 
     const previewMaxHeight = shouldUseExpandedDiffPreviewHeight
       ? FILE_OPERATION_DIFF_MAX_HEIGHT
       : FILE_OPERATION_STREAMING_MAX_HEIGHT;
+    const isEdit = toolItem.toolName === 'Edit';
 
-    if (toolItem.toolName === 'Edit') {
-      if (
-        (status !== 'completed' || editTypewriter.isRevealing || keepLiveEditPreview)
-        && newStringContent
-      ) {
-        return (
-          <div data-bf-component="file-operation-tool-card" data-bf-part="preview" className="streaming-content-preview" data-testid="chat-file-change-preview">
-            <div className="preview-text" data-bf-component="file-operation-tool-card" data-bf-part="previewText">
-              <CodePreview
-                content={editDisplayContent}
-                filePath={currentFilePath}
-                isStreaming={editVisuallyStreaming}
-                showLineNumbers={isContentExpanded}
-                maxHeight={previewMaxHeight}
-                autoScrollToBottom={false}
-                onLineClick={handleCodeLineClick}
-              />
-            </div>
-          </div>
-        );
-      }
-      
-      if (
-        status === 'completed'
-        && !isParamsStreaming
-        && !editTypewriter.isRevealing
-        && !keepLiveEditPreview
-        && (oldStringContent || newStringContent)
-      ) {
-        return (
-          <div data-bf-component="file-operation-tool-card" data-bf-part="preview" className="streaming-content-preview" data-testid="chat-file-change-preview">
-            <div className="preview-text" data-bf-component="file-operation-tool-card" data-bf-part="previewText">
-              <InlineDiffPreview
-                originalContent={oldStringContent}
-                modifiedContent={newStringContent}
-                filePath={currentFilePath}
-                maxHeight={previewMaxHeight}
-                showLineNumbers={isContentExpanded}
-                lineNumberMode="dual"
-                showPrefix={false}
-                contextLines={-1}
-              />
-            </div>
-          </div>
-        );
-      }
-    }
-
-    if (toolItem.toolName === 'Write') {
-      if (
-        (status !== 'completed' || writeTypewriter.isRevealing || keepLiveWritePreview)
-        && contentPreview
-      ) {
-        return (
-          <div data-bf-component="file-operation-tool-card" data-bf-part="preview" className="streaming-content-preview" data-testid="chat-file-change-preview">
-            <div className="preview-text" data-bf-component="file-operation-tool-card" data-bf-part="previewText">
-              <CodePreview
-                content={writeDisplayContent}
-                filePath={currentFilePath}
-                isStreaming={writeVisuallyStreaming}
-                showLineNumbers={isContentExpanded}
-                maxHeight={previewMaxHeight}
-                autoScrollToBottom={false}
-                onLineClick={handleCodeLineClick}
-              />
-            </div>
-          </div>
-        );
-      }
-      
-      if (
-        status === 'completed'
-        && !isParamsStreaming
-        && !writeTypewriter.isRevealing
-        && !keepLiveWritePreview
-        && contentPreview
-      ) {
-        return (
-          <div data-bf-component="file-operation-tool-card" data-bf-part="preview" className="streaming-content-preview" data-testid="chat-file-change-preview">
-            <div className="preview-text" data-bf-component="file-operation-tool-card" data-bf-part="previewText">
-              <InlineDiffPreview
-                originalContent=""
-                modifiedContent={contentPreview}
-                filePath={currentFilePath}
-                maxHeight={previewMaxHeight}
-                showLineNumbers={isContentExpanded}
-                lineNumberMode="single"
-                showPrefix={true}
-                contextLines={-1}
-              />
-            </div>
-          </div>
-        );
-      }
-    }
-
-    return null;
+    return (
+      <div data-bf-component="file-operation-tool-card" data-bf-part="preview" className="streaming-content-preview" data-testid="chat-file-change-preview">
+        <div className="preview-text" data-bf-component="file-operation-tool-card" data-bf-part="previewText">
+          {previewVariant === 'streaming-code' ? (
+            <CodePreview
+              content={isEdit ? editDisplayContent : writeDisplayContent}
+              filePath={currentFilePath}
+              isStreaming={isEdit ? editVisuallyStreaming : writeVisuallyStreaming}
+              showLineNumbers={isContentExpanded}
+              maxHeight={previewMaxHeight}
+              autoScrollToBottom={false}
+              onLineClick={handleCodeLineClick}
+            />
+          ) : (
+            <InlineDiffPreview
+              originalContent={isEdit ? oldStringContent : ''}
+              modifiedContent={isEdit ? newStringContent : contentPreview}
+              filePath={currentFilePath}
+              maxHeight={previewMaxHeight}
+              showLineNumbers={isContentExpanded}
+              lineNumberMode={isEdit ? 'dual' : 'single'}
+              showPrefix={!isEdit}
+              contextLines={-1}
+            />
+          )}
+        </div>
+      </div>
+    );
   };
 
   const renderGuidanceContent = () => (

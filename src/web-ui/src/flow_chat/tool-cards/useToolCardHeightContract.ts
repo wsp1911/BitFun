@@ -17,7 +17,21 @@ interface RequestAutoCollapseOptions {
 export function useToolCardHeightContract() {
   const cardRootRef = useRef<HTMLDivElement>(null);
   const [isAutoCollapseInstant, setIsAutoCollapseInstant] = useState(false);
+  const [hasUserExpandedSettled, setHasUserExpandedSettled] = useState(false);
   const autoCollapse = useFlowChatAutoCollapse();
+
+  /**
+   * Cards with a compact and a comfortable size must only grow when the user
+   * asked to read the finished result. Every other expanded state — streaming,
+   * and the window where the coordinator is holding a collapse request — keeps
+   * the compact size, so a card never changes height on its own.
+   *
+   * The card owns what "settled" means (completed status, finished stream, …)
+   * and calls this from its own toggle handler.
+   */
+  const markUserExpandedSettled = useCallback(() => {
+    setHasUserExpandedSettled(true);
+  }, []);
 
   const dispatchToolCardToggle = useCallback(() => {
     window.dispatchEvent(new CustomEvent('tool-card-toggle'));
@@ -72,5 +86,7 @@ export function useToolCardHeightContract() {
     applyExpandedState,
     requestAutoCollapse,
     isAutoCollapseInstant,
+    hasUserExpandedSettled,
+    markUserExpandedSettled,
   };
 }

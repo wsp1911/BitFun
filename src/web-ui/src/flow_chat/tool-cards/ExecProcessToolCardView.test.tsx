@@ -5,6 +5,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { JSDOM } from 'jsdom';
 
 import { ExecProcessToolCardView, type ExecProcessCardModel } from './ExecProcessToolCardView';
+import { FlowChatAutoCollapseContext } from '../components/modern/useFlowChatAutoCollapse';
 import type { FlowToolItem } from '../types/flow-chat';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
@@ -51,11 +52,17 @@ vi.mock('../../component-library', () => ({
   ),
 }));
 
+const mocks = vi.hoisted(() => ({
+  outputRendererProps: [] as Array<Record<string, unknown>>,
+}));
+
 vi.mock('@/tools/terminal/components/LazyTerminalOutputRenderer', () => ({
   LazyTerminalOutputRenderer: React.forwardRef<
     { getVisibleText: () => string },
-    { content: string; className?: string }
-  >(({ content, className }, ref) => {
+    { content: string; className?: string; maxRows?: number }
+  >((props, ref) => {
+    const { content, className } = props;
+    mocks.outputRendererProps.push(props as unknown as Record<string, unknown>);
     React.useImperativeHandle(ref, () => ({ getVisibleText: () => content }), [content]);
     return <pre className={className}>{content}</pre>;
   }),
@@ -107,6 +114,7 @@ describe('ExecProcessToolCardView', () => {
 
     container = dom.window.document.getElementById('root') as HTMLDivElement;
     root = createRoot(container);
+    mocks.outputRendererProps = [];
   });
 
   afterEach(() => {
@@ -167,7 +175,7 @@ describe('ExecProcessToolCardView', () => {
     expect(container.textContent).not.toContain('Receiving parameters...');
   });
 
-  it('retains a just-completed tail result during the grace period', () => {
+  it('keeps the BaseToolCard shell and its output when a command completes', () => {
     const resultModel: ExecProcessCardModel = {
       ...model,
       resultOutput: 'All tests passed',
@@ -175,11 +183,7 @@ describe('ExecProcessToolCardView', () => {
 
     act(() => {
       root.render(
-        <ExecProcessToolCardView
-          toolItem={toolItem('running')}
-          model={resultModel}
-          isLastItem
-        />,
+        <ExecProcessToolCardView toolItem={toolItem('running')} model={resultModel} />,
       );
     });
 
@@ -188,25 +192,7 @@ describe('ExecProcessToolCardView', () => {
 
     act(() => {
       root.render(
-        <ExecProcessToolCardView
-          toolItem={toolItem('completed')}
-          model={resultModel}
-          isLastItem
-        />,
-      );
-    });
-
-    expect(container.querySelector('.base-tool-card')).not.toBeNull();
-    expect(container.querySelector('.compact-tool-card')).toBeNull();
-    expect(container.textContent).toContain('All tests passed');
-
-    act(() => {
-      root.render(
-        <ExecProcessToolCardView
-          toolItem={toolItem('completed')}
-          model={resultModel}
-          isLastItem={false}
-        />,
+        <ExecProcessToolCardView toolItem={toolItem('completed')} model={resultModel} />,
       );
     });
 
@@ -214,9 +200,10 @@ describe('ExecProcessToolCardView', () => {
     expect(container.querySelector('.base-tool-card')).not.toBeNull();
     expect(container.querySelector('.base-tool-card.expanded')).toBeNull();
     expect(container.querySelector('.compact-tool-card')).toBeNull();
+    expect(container.textContent).toContain('All tests passed');
   });
 
-  it('collapses a completed tail result when the grace period expires', () => {
+  it('requests the collapse of a completed result without waiting on a timer', () => {
     vi.useFakeTimers();
     const resultModel: ExecProcessCardModel = {
       ...model,
@@ -225,33 +212,18 @@ describe('ExecProcessToolCardView', () => {
 
     act(() => {
       root.render(
-        <ExecProcessToolCardView
-          toolItem={toolItem('running')}
-          model={resultModel}
-          isLastItem
-        />,
+        <ExecProcessToolCardView toolItem={toolItem('running')} model={resultModel} />,
       );
     });
 
     act(() => {
       root.render(
-        <ExecProcessToolCardView
-          toolItem={toolItem('completed')}
-          model={resultModel}
-          isLastItem
-        />,
+        <ExecProcessToolCardView toolItem={toolItem('completed')} model={resultModel} />,
       );
     });
-    expect(vi.getTimerCount()).toBeGreaterThan(0);
 
-    act(() => {
-      vi.advanceTimersByTime(799);
-    });
-    expect(container.querySelector('.base-tool-card.expanded')).not.toBeNull();
-
-    act(() => {
-      vi.advanceTimersByTime(1);
-    });
+    // No collapse coordinator is mounted here, so the request runs immediately
+    // instead of being held until the card leaves the viewport.
     expect(container.querySelector('.base-tool-card.expanded')).toBeNull();
     expect(container.querySelector('.terminal-result-container')).not.toBeNull();
 
@@ -264,5 +236,78 @@ describe('ExecProcessToolCardView', () => {
       vi.advanceTimersByTime(1);
     });
     expect(container.querySelector('.terminal-result-container')).toBeNull();
+  });
+
+  describe('with a deferred collapse coordinator', () => {
+    // The coordinator accepts the collapse request but never runs it, which is
+    // what happens while the card is still inside the viewport.
+    const deferredAutoCollapse = {
+      isManaged: true,
+      request: () => () => undefined,
+    };
+    const resultModel: ExecProcessCardModel = {
+      ...model,
+      resultOutput: 'line 1\nline 2\nline 3\nline 4\nline 5\nline 6',
+    };
+    const renderCard = (status: FlowToolItem['status']) => (
+      <FlowChatAutoCollapseContext.Provider value={deferredAutoCollapse}>
+        <ExecProcessToolCardView toolItem={toolItem(status)} model={resultModel} />
+      </FlowChatAutoCollapseContext.Provider>
+    );
+    const lastMaxRows = () => mocks.outputRendererProps.at(-1)?.maxRows;
+
+    it('keeps the streaming row count while an auto-expanded card stays open', () => {
+      act(() => {
+        root.render(renderCard('running'));
+      });
+      act(() => {
+        root.render(renderCard('completed'));
+      });
+
+      expect(container.querySelector('.base-tool-card.expanded')).not.toBeNull();
+      expect(lastMaxRows()).toBe(4);
+    });
+
+    it('uses the comfortable row count once the user expands a settled card', () => {
+      act(() => {
+        root.render(renderCard('running'));
+      });
+      act(() => {
+        root.render(renderCard('completed'));
+      });
+
+      const card = container.querySelector('.base-tool-card') as HTMLElement | null;
+      // Collapse, then reopen: only the reopen counts as "show me everything".
+      act(() => {
+        card?.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+      });
+      act(() => {
+        card?.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+      });
+
+      expect(container.querySelector('.base-tool-card.expanded')).not.toBeNull();
+      expect(lastMaxRows()).toBe(15);
+    });
+
+    it('does not treat a toggle made while running as a request for the full output', () => {
+      act(() => {
+        root.render(renderCard('running'));
+      });
+
+      const card = container.querySelector('.base-tool-card') as HTMLElement | null;
+      act(() => {
+        card?.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+      });
+      act(() => {
+        card?.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+      });
+
+      act(() => {
+        root.render(renderCard('completed'));
+      });
+
+      expect(container.querySelector('.base-tool-card.expanded')).not.toBeNull();
+      expect(lastMaxRows()).toBe(4);
+    });
   });
 });

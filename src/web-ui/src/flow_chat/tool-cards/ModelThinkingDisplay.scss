@@ -113,12 +113,21 @@
   border: none;
   border-radius: 6px;
   margin-top: 0;
-  /* Cap height when expanded so long thinking stays compact; scroll inside */
-  max-height: 300px;
+  /*
+   * Compact by default: this covers streaming and the window where the
+   * coordinator is still holding a collapse request, so the card never changes
+   * height on its own. Long thinking scrolls inside.
+   */
+  max-height: 132px;
   overflow-y: auto;
   min-height: 0;
   cursor: text;
   user-select: text;
+}
+
+/* Earned by expanding the card after thinking finished. */
+.thinking-content--comfortable {
+  max-height: 300px;
 }
 
 .flow-thinking-item.streaming .thinking-content {

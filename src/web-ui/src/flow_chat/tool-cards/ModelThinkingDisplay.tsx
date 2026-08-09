@@ -52,6 +52,8 @@ export const ModelThinkingDisplay: React.FC<ModelThinkingDisplayProps> = ({
     applyExpandedState,
     requestAutoCollapse,
     isAutoCollapseInstant,
+    hasUserExpandedSettled,
+    markUserExpandedSettled,
   } = useToolCardHeightContract();
 
   useLayoutEffect(() => {
@@ -189,6 +191,9 @@ export const ModelThinkingDisplay: React.FC<ModelThinkingDisplayProps> = ({
   const handleToggleClick = () => {
     const nextExpanded = !isExpanded;
     userToggledRef.current = true;
+    if (nextExpanded && !isActive) {
+      markUserExpandedSettled();
+    }
     applyExpandedState(isExpanded, nextExpanded, setIsExpanded);
   };
 
@@ -277,7 +282,13 @@ export const ModelThinkingDisplay: React.FC<ModelThinkingDisplayProps> = ({
             data-testid="chat-thinking-content"
             data-status={status}
             data-streaming={isActive ? 'true' : 'false'}
-            className={`thinking-content expanded`}
+            className={[
+              'thinking-content',
+              'expanded',
+              // Only a deliberate expand after thinking finished earns the
+              // reading height, so the card never grows on its own.
+              hasUserExpandedSettled ? 'thinking-content--comfortable' : '',
+            ].filter(Boolean).join(' ')}
             onScroll={checkScrollState}
             onWheelCapture={handleContentWheelCapture}
             onTouchStart={handleContentTouchStart}
