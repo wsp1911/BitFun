@@ -4,6 +4,11 @@ export interface FlowChatTurnStageState {
   remainingPx: number;
   baselineNaturalExtentPx: number;
   maxNaturalExtentPx: number;
+  /**
+   * A provisional stage has no measured baseline yet, so its natural extent is
+   * meaningless. Consumption stays inert until alignment calibrates it.
+   */
+  isCalibrated: boolean;
 }
 
 export interface CreateProvisionalFlowChatTurnStageInput {
@@ -35,6 +40,7 @@ export function createProvisionalFlowChatTurnStage({
     remainingPx: initialPx,
     baselineNaturalExtentPx: 0,
     maxNaturalExtentPx: 0,
+    isCalibrated: false,
   };
 }
 
@@ -60,6 +66,7 @@ export function calibrateFlowChatTurnStage({
     remainingPx: calibratedRemainingPx,
     baselineNaturalExtentPx: naturalExtentPx,
     maxNaturalExtentPx: naturalExtentPx,
+    isCalibrated: true,
   };
 }
 
@@ -68,6 +75,10 @@ export function consumeFlowChatTurnStage(
   scrollHeightPx: number,
   bottomLayoutInsetPx: number,
 ): FlowChatTurnStageState {
+  // Before calibration the baseline is still zero, so the whole pre-existing
+  // transcript would be mistaken for this Turn's growth and swallow the stage
+  // in a single call.
+  if (!stage.isCalibrated) return stage;
   const naturalExtent = finiteNonNegative(
     scrollHeightPx - bottomLayoutInsetPx - stage.remainingPx,
   );

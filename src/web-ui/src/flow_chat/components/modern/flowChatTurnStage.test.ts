@@ -43,6 +43,18 @@ describe('flowChatTurnStage', () => {
     expect(consumeFlowChatTurnStage(exhausted, 1200, 100).remainingPx).toBe(0);
   });
 
+  it('leaves a provisional stage untouched until alignment calibrates it', () => {
+    const provisional = createProvisionalFlowChatTurnStage({
+      turnId: 'turn-3',
+      viewportHeightPx: 983,
+    });
+
+    // Without the calibrated baseline the 326px of pre-existing transcript
+    // would count as this Turn's growth and swallow a third of the stage.
+    expect(consumeFlowChatTurnStage(provisional, 1_413, 104)).toBe(provisional);
+    expect(provisional.remainingPx).toBe(983);
+  });
+
   it('calibrates a provisional viewport stage against its full geometry', () => {
     const provisional = createProvisionalFlowChatTurnStage({
       turnId: 'turn-2',

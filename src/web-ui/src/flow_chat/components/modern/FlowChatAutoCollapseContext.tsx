@@ -11,6 +11,7 @@ import {
   type FlowChatAutoCollapseDecision,
 } from './flowChatAutoCollapse';
 import { FlowChatAutoCollapseContext } from './useFlowChatAutoCollapse';
+import { measureFlowChatTurnAnchorGeometry } from './flowChatViewportDiagnostics';
 import { flowChatDiagnostics } from '@/infrastructure/diagnostics/flowChatDiagnostics';
 
 interface AutoCollapseRequest {
@@ -30,6 +31,7 @@ interface FlowChatAutoCollapseProviderProps {
   stageSpacePx: number;
   bottomLayoutInsetPx: number;
   sessionId: string | null;
+  anchorTurnId: string | null;
   isSuspended?: boolean;
 }
 
@@ -42,14 +44,27 @@ export function FlowChatAutoCollapseProvider({
   stageSpacePx,
   bottomLayoutInsetPx,
   sessionId,
+  anchorTurnId,
   isSuspended = false,
 }: FlowChatAutoCollapseProviderProps) {
   const requestsRef = useRef(new Map<number, AutoCollapseRequest>());
   const nextRequestIdRef = useRef(1);
   const evaluationFrameRef = useRef<number | null>(null);
   const settlingRef = useRef(false);
-  const policyRef = useRef({ isFollowingOutput, stageSpacePx, bottomLayoutInsetPx, isSuspended });
-  policyRef.current = { isFollowingOutput, stageSpacePx, bottomLayoutInsetPx, isSuspended };
+  const policyRef = useRef({
+    isFollowingOutput,
+    stageSpacePx,
+    bottomLayoutInsetPx,
+    anchorTurnId,
+    isSuspended,
+  });
+  policyRef.current = {
+    isFollowingOutput,
+    stageSpacePx,
+    bottomLayoutInsetPx,
+    anchorTurnId,
+    isSuspended,
+  };
 
   const evaluate = useCallback(() => {
     evaluationFrameRef.current = null;
@@ -126,6 +141,10 @@ export function FlowChatAutoCollapseProvider({
 
       requestsRef.current.delete(request.id);
       settlingRef.current = true;
+      const anchorGeometryBefore = measureFlowChatTurnAnchorGeometry(
+        scroller,
+        policy.anchorTurnId,
+      );
       flowChatDiagnostics.trace({
         hypothesis: 'COLLAPSE',
         location: 'FlowChatAutoCollapseProvider.evaluate',
@@ -137,6 +156,11 @@ export function FlowChatAutoCollapseProvider({
           turnId: request.turnId,
           isFollowingOutput: policy.isFollowingOutput,
           cardPosition: cardRect.bottom <= viewportRect.top ? 'above' : 'below',
+          cardHeight: cardRect.height,
+          cardTopFromViewportTop: cardRect.top - viewportRect.top,
+          cardBottomFromViewportTop: cardRect.bottom - viewportRect.top,
+          anchorTurnId: policy.anchorTurnId,
+          anchorGeometryBefore,
           pendingCandidateCount: requestsRef.current.size,
         }),
       });
@@ -144,6 +168,18 @@ export function FlowChatAutoCollapseProvider({
       requestAnimationFrame(() => {
         requestAnimationFrame(() => {
           settlingRef.current = false;
+          const settledScroller = scrollerRef.current;
+          const settledPolicy = policyRef.current;
+          const settledCardRect = request.element.isConnected
+            ? request.element.getBoundingClientRect()
+            : null;
+          const settledViewportRect = settledScroller?.getBoundingClientRect() ?? null;
+          const anchorGeometryAfter = settledScroller
+            ? measureFlowChatTurnAnchorGeometry(
+              settledScroller,
+              settledPolicy.anchorTurnId,
+            )
+            : null;
           flowChatDiagnostics.trace({
             hypothesis: 'COLLAPSE',
             location: 'FlowChatAutoCollapseProvider.evaluate',
@@ -153,6 +189,31 @@ export function FlowChatAutoCollapseProvider({
               cardId: request.cardId,
               sessionId: request.sessionId,
               turnId: request.turnId,
+              anchorTurnIdBefore: policy.anchorTurnId,
+              anchorTurnIdAfter: settledPolicy.anchorTurnId,
+              stageSpacePxBefore: policy.stageSpacePx,
+              stageSpacePxAfter: settledPolicy.stageSpacePx,
+              anchorGeometryBefore,
+              anchorGeometryAfter,
+              anchorOffsetDeltaPx:
+                anchorGeometryBefore.userMessageOffsetFromViewportTop !== null
+                && anchorGeometryAfter
+                && anchorGeometryAfter.userMessageOffsetFromViewportTop !== null
+                  ? anchorGeometryAfter.userMessageOffsetFromViewportTop
+                    - anchorGeometryBefore.userMessageOffsetFromViewportTop
+                  : null,
+              scrollTopDeltaPx: anchorGeometryAfter
+                ? anchorGeometryAfter.scrollTop - anchorGeometryBefore.scrollTop
+                : null,
+              scrollHeightDeltaPx: anchorGeometryAfter
+                ? anchorGeometryAfter.scrollHeight - anchorGeometryBefore.scrollHeight
+                : null,
+              cardHeightBefore: cardRect.height,
+              cardHeightAfter: settledCardRect ? settledCardRect.height : null,
+              cardShrinkPx: settledCardRect ? cardRect.height - settledCardRect.height : null,
+              cardTopFromViewportTopAfter: settledCardRect && settledViewportRect
+                ? settledCardRect.top - settledViewportRect.top
+                : null,
               pendingCandidateCount: requestsRef.current.size,
             }),
           });
@@ -216,7 +277,14 @@ export function FlowChatAutoCollapseProvider({
 
   useEffect(() => {
     scheduleEvaluation();
-  }, [isFollowingOutput, stageSpacePx, bottomLayoutInsetPx, isSuspended, scheduleEvaluation]);
+  }, [
+    anchorTurnId,
+    bottomLayoutInsetPx,
+    isFollowingOutput,
+    isSuspended,
+    scheduleEvaluation,
+    stageSpacePx,
+  ]);
 
   useEffect(() => {
     const scroller = scrollerRef.current;

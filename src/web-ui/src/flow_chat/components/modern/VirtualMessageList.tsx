@@ -58,6 +58,7 @@ import {
   type FlowChatTurnStageState,
 } from './flowChatTurnStage';
 import { flowChatDiagnostics } from '@/infrastructure/diagnostics/flowChatDiagnostics';
+import { measureFlowChatTurnAnchorGeometry } from './flowChatViewportDiagnostics';
 import { VirtualItemRenderer } from './VirtualItemRenderer';
 import { getLeadingVirtualItemIndexDelta } from './virtualMessageListLayout';
 import { resolveVisibleFlowChatTurnIds } from './flowChatVisibleTurns';
@@ -263,7 +264,6 @@ const VirtualMessageListSession = forwardRef<VirtualMessageListRef, VirtualMessa
   const [turnStage, setTurnStage] = useState<FlowChatTurnStageState | null>(null);
   const [isTurnStageCalibrating, setIsTurnStageCalibrating] = useState(false);
   const turnStageRef = useRef<FlowChatTurnStageState | null>(null);
-  const isTurnStageCalibratingRef = useRef(false);
   const virtualItemsRef = useRef(virtualItems);
   const stageRemainingBucketRef = useRef<number | null>(null);
   const previousStageTurnIdRef = useRef(latestTurnId);
@@ -280,6 +280,7 @@ const VirtualMessageListSession = forwardRef<VirtualMessageListRef, VirtualMessa
   });
   const searchNavigationRequestIdRef = useRef(0);
   const visibleTurnUpdateFrameRef = useRef<number | null>(null);
+  const stageMilestoneSettlementFrameRef = useRef<number | null>(null);
   const resumeFollowAfterStageRef = useRef<() => void>(() => {});
 
   const virtuosoIndexStateRef = useRef({
@@ -328,7 +329,6 @@ const VirtualMessageListSession = forwardRef<VirtualMessageListRef, VirtualMessa
   const inputHeight = useChatInputState(state => state.inputHeight);
   const bottomLayoutInsetPx = computeFlowChatInputStackFooterPx(inputHeight);
   turnStageRef.current = turnStage;
-  isTurnStageCalibratingRef.current = isTurnStageCalibrating;
   virtualItemsRef.current = virtualItems;
 
   const hasPendingTurnStageCalibration = Boolean(
@@ -354,7 +354,9 @@ const VirtualMessageListSession = forwardRef<VirtualMessageListRef, VirtualMessa
   const updateTurnStage = useCallback(() => {
     const scroller = scrollerElementRef.current;
     const stage = turnStageRef.current;
-    if (!scroller || !stage || isTurnStageCalibratingRef.current) return;
+    // Ownership lives outside React rendering, so it stays accurate even when a
+    // layout callback lands between the placement transaction's own renders.
+    if (!scroller || !stage || viewportCoordinator.getOwner() === 'turn-placement') return;
     const next = consumeFlowChatTurnStage(
       stage,
       scroller.scrollHeight,
@@ -367,6 +369,10 @@ const VirtualMessageListSession = forwardRef<VirtualMessageListRef, VirtualMessa
       const nextBucket = getFlowChatTurnStageRemainingBucket(next);
       if (previousBucket !== nextBucket) {
         stageRemainingBucketRef.current = nextBucket;
+        const anchorGeometryBeforeCommit = measureFlowChatTurnAnchorGeometry(
+          scroller,
+          next.turnId,
+        );
         flowChatDiagnostics.trace({
           hypothesis: 'STAGE',
           location: 'VirtualMessageList.updateTurnStage',
@@ -383,10 +389,55 @@ const VirtualMessageListSession = forwardRef<VirtualMessageListRef, VirtualMessa
             consumedPx: next.initialPx - next.remainingPx,
             baselineNaturalExtentPx: next.baselineNaturalExtentPx,
             maxNaturalExtentPx: next.maxNaturalExtentPx,
-            scrollHeight: scroller.scrollHeight,
-            clientHeight: scroller.clientHeight,
+            anchorGeometryBeforeCommit,
             bottomLayoutInsetPx,
           }),
+        });
+        if (stageMilestoneSettlementFrameRef.current !== null) {
+          cancelAnimationFrame(stageMilestoneSettlementFrameRef.current);
+        }
+        stageMilestoneSettlementFrameRef.current = requestAnimationFrame(() => {
+          stageMilestoneSettlementFrameRef.current = requestAnimationFrame(() => {
+            stageMilestoneSettlementFrameRef.current = null;
+            const settledScroller = scrollerElementRef.current;
+            if (!settledScroller) return;
+            const settledStage = turnStageRef.current;
+            const anchorGeometryAfterSettlement = measureFlowChatTurnAnchorGeometry(
+              settledScroller,
+              next.turnId,
+            );
+            flowChatDiagnostics.trace({
+              hypothesis: 'STAGE',
+              location: 'VirtualMessageList.updateTurnStage',
+              message: 'Turn stage consumption milestone settled',
+              data: () => ({
+                sessionId: activeSessionId,
+                turnId: next.turnId,
+                previousBucket,
+                nextBucket,
+                previousRemainingPx: stage.remainingPx,
+                requestedRemainingPx: next.remainingPx,
+                settledRemainingPx: settledStage?.turnId === next.turnId
+                  ? settledStage.remainingPx
+                  : null,
+                viewportOwner: viewportCoordinator.getOwner(),
+                anchorGeometryBeforeCommit,
+                anchorGeometryAfterSettlement,
+                anchorOffsetDeltaPx:
+                  anchorGeometryBeforeCommit.userMessageOffsetFromViewportTop !== null
+                  && anchorGeometryAfterSettlement.userMessageOffsetFromViewportTop !== null
+                    ? anchorGeometryAfterSettlement.userMessageOffsetFromViewportTop
+                      - anchorGeometryBeforeCommit.userMessageOffsetFromViewportTop
+                    : null,
+                scrollTopDeltaPx:
+                  anchorGeometryAfterSettlement.scrollTop
+                  - anchorGeometryBeforeCommit.scrollTop,
+                scrollHeightDeltaPx:
+                  anchorGeometryAfterSettlement.scrollHeight
+                  - anchorGeometryBeforeCommit.scrollHeight,
+              }),
+            });
+          });
         });
       }
       if (next.remainingPx <= 0) {
@@ -399,6 +450,12 @@ const VirtualMessageListSession = forwardRef<VirtualMessageListRef, VirtualMessa
       }
     }
   }, [activeSessionId, bottomLayoutInsetPx, viewportCoordinator]);
+
+  useEffect(() => () => {
+    if (stageMilestoneSettlementFrameRef.current !== null) {
+      cancelAnimationFrame(stageMilestoneSettlementFrameRef.current);
+    }
+  }, []);
 
   const scrollToTail = useCallback((behavior: ScrollBehavior) => {
     viewportCoordinator.scrollToTail('following', behavior);
@@ -548,11 +605,6 @@ const VirtualMessageListSession = forwardRef<VirtualMessageListRef, VirtualMessa
   ), []);
 
   useEffect(() => {
-    const setCalibrationActive = (active: boolean) => {
-      isTurnStageCalibratingRef.current = active;
-      setIsTurnStageCalibrating(active);
-    };
-
     if (previousStageSessionIdRef.current !== activeSessionId) {
       const previousStage = turnStageRef.current;
       if (previousStage) {
@@ -572,7 +624,7 @@ const VirtualMessageListSession = forwardRef<VirtualMessageListRef, VirtualMessa
       previousStageTurnIdRef.current = latestTurnId;
       turnStageRef.current = null;
       stageRemainingBucketRef.current = null;
-      setCalibrationActive(false);
+      setIsTurnStageCalibrating(false);
       setTurnStage(null);
       return;
     }
@@ -580,7 +632,7 @@ const VirtualMessageListSession = forwardRef<VirtualMessageListRef, VirtualMessa
     const previousTurnId = previousStageTurnIdRef.current;
     if (presentationMode !== 'tail' || viewportMode !== 'live-tail') {
       previousStageTurnIdRef.current = latestTurnId;
-      setCalibrationActive(false);
+      setIsTurnStageCalibrating(false);
       if (turnStageRef.current) {
         const previousStage = turnStageRef.current;
         flowChatDiagnostics.trace({
@@ -606,14 +658,14 @@ const VirtualMessageListSession = forwardRef<VirtualMessageListRef, VirtualMessa
     const scroller = scrollerElementRef.current;
     if (!scroller) return;
     viewportCoordinator.beginTurnPlacement('new-live-turn');
-    setCalibrationActive(true);
+    setIsTurnStageCalibrating(true);
     let frame: number | null = null;
     let attempts = 0;
     let cancelled = false;
 
     const finishCalibration = () => {
       if (cancelled) return;
-      setCalibrationActive(false);
+      setIsTurnStageCalibrating(false);
     };
 
     const createStage = () => {
@@ -678,15 +730,17 @@ const VirtualMessageListSession = forwardRef<VirtualMessageListRef, VirtualMessa
           finishCalibration();
           return;
         }
-        const targetIndex = virtualItemsRef.current.findIndex(
-          item => item.type === 'user-message' && item.turnId === latestTurnId,
-        );
-        if (targetIndex >= 0) {
-          viewportCoordinator.scrollToIndex('turn-placement', {
-            index: targetIndex,
-            align: 'start',
-            behavior: 'auto',
-          });
+        // The user message is already rendered, so alignment is measured from
+        // the real DOM. Virtuoso's `scrollToIndex` would leave a pending
+        // location behind that it replays from its own size tree on every
+        // later remeasurement, overwriting the placed viewport.
+        const placementUserMessage = getRenderedUserMessageElement(latestTurnId);
+        if (placementUserMessage) {
+          const offset = placementUserMessage.getBoundingClientRect().top
+            - scroller.getBoundingClientRect().top;
+          if (Math.abs(offset) > 0.5) {
+            viewportCoordinator.adjustScrollTop('turn-placement', offset);
+          }
         }
         frame = requestAnimationFrame(() => {
           if (viewportCoordinator.getOwner() !== 'turn-placement') {
@@ -785,7 +839,6 @@ const VirtualMessageListSession = forwardRef<VirtualMessageListRef, VirtualMessa
     return () => {
       cancelled = true;
       if (frame !== null) cancelAnimationFrame(frame);
-      isTurnStageCalibratingRef.current = false;
     };
   }, [
     activeSessionId,
@@ -1182,6 +1235,7 @@ const VirtualMessageListSession = forwardRef<VirtualMessageListRef, VirtualMessa
         stageSpacePx={turnStage?.remainingPx ?? 0}
         bottomLayoutInsetPx={bottomLayoutInsetPx}
         sessionId={activeSessionId}
+        anchorTurnId={turnStage?.turnId ?? null}
         isSuspended={isTurnStageCalibrating || hasPendingTurnStageCalibration}
       >
       <Virtuoso

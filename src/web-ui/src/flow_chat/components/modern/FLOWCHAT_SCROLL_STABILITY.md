@@ -17,6 +17,12 @@ message near the viewport top. It is not a general scroll-compensation system.
   trimmed once and the natural-content baseline is calibrated. The coordinator
   then enters `stage-consuming`; follow movement resumes only after the stage is
   exhausted.
+- A provisional stage has no baseline, so it is inert to consumption; only a
+  calibrated stage can be consumed. Suspension during the placement transaction
+  is decided from coordinator ownership, never from a ref written during render.
+- Placement aligns the already-rendered user message by measuring its own DOM
+  rect. It must not use Virtuoso's `scrollToIndex`, which retains the requested
+  location and replays it from Virtuoso's size tree on later remeasurement.
 - The calibrated stage remains clamped to one viewport height and never grows.
 - Natural content growth consumes the stage using a maximum-height watermark.
   Content shrink, card collapse, input shrink, and remeasurement never restore
@@ -76,12 +82,14 @@ When `app.logging.flow_chat_diagnostics` is enabled, the dedicated
 `flowchat.log` channel records semantic state transitions rather than every
 scroll or resize callback:
 
-- `STAGE`: creation, 75/50/25/0 percent consumption milestones, exhaustion,
-  creation failure, and clearing on session or presentation changes.
+- `STAGE`: creation, 75/50/25/0 percent consumption milestones and their
+  post-commit anchor geometry, exhaustion, creation failure, and clearing on
+  session or presentation changes.
 - `FOLLOW`: ownership entry/exit, inactive-viewport rejection, and natural-tail
   corrections rate-limited to one entry per second.
 - `COLLAPSE`: candidate registration/cancellation, waiting-reason changes,
-  eligibility, execution, disconnection, and post-collapse settlement.
+  eligibility, execution, disconnection, and post-collapse settlement with
+  before/after geometry for the currently staged Turn anchor.
 - `VIEWPORT`: ownership transitions between placement, stage consumption,
   following, explicit navigation, and idle.
 
