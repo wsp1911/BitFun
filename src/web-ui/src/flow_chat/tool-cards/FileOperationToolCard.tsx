@@ -37,6 +37,7 @@ import { diffLines } from 'diff';
 import { createLogger } from '@/shared/utils/logger';
 import { CompactToolCard, CompactToolCardHeader } from './CompactToolCard';
 import { useToolCardHeightContract } from './useToolCardHeightContract';
+import { resolveToolCardExpanded } from './toolCardExpansionMemory';
 import { useTypewriter } from '../hooks/useTypewriter';
 import { useReportTypewriterReveal } from '../hooks/typewriterRevealGateContext';
 import { hasNonFileUriScheme } from '@/shared/utils/pathUtils';
@@ -127,13 +128,14 @@ export const FileOperationToolCard: React.FC<FileOperationToolCardProps> = ({
   const toolId = toolItem.id ?? toolCall?.id;
   
   const [isErrorExpanded, setIsErrorExpanded] = useState(false);
-  const [isContentExpanded, setIsContentExpanded] = useState(status !== 'completed');
+  const [isContentExpanded, setIsContentExpanded] = useState(
+    () => resolveToolCardExpanded(toolId, status !== 'completed'),
+  );
   const [operationDiffStats, setOperationDiffStats] = useState<{ additions: number; deletions: number } | null>(null);
-  
+
   const hasInitializedCompletionEffectRef = useRef(false);
   const previousCompletionEndTimeRef = useRef<number | null>(toolItem.endTime ?? null);
   const previousFailureStatusRef = useRef(status);
-  const userToggledContentRef = useRef(false);
   const {
     cardRootRef,
     applyExpandedState: applyHeightContractExpandedState,
@@ -142,7 +144,9 @@ export const FileOperationToolCard: React.FC<FileOperationToolCardProps> = ({
     isAutoCollapseInstant,
     hasUserExpandedSettled,
     markUserExpandedSettled,
-  } = useToolCardHeightContract();
+    isUserControlled,
+    markUserControlled,
+  } = useToolCardHeightContract({ cardId: toolId, isExpanded: isContentExpanded });
   
   const {
     files,
@@ -375,7 +379,7 @@ export const FileOperationToolCard: React.FC<FileOperationToolCardProps> = ({
     reason: 'manual' | 'auto',
   ) => {
     if (reason === 'manual') {
-      userToggledContentRef.current = true;
+      markUserControlled();
       if (nextExpanded && status === 'completed') {
         markUserExpandedSettled();
       }
@@ -391,6 +395,7 @@ export const FileOperationToolCard: React.FC<FileOperationToolCardProps> = ({
   }, [
     applyHeightContractExpandedState,
     isContentExpanded,
+    markUserControlled,
     markUserExpandedSettled,
     requestAutoCollapse,
     status,
@@ -412,7 +417,7 @@ export const FileOperationToolCard: React.FC<FileOperationToolCardProps> = ({
   }, [error, clearError, currentFilePath]);
 
   useLayoutEffect(() => {
-    if (userToggledContentRef.current) {
+    if (isUserControlled()) {
       return;
     }
 
@@ -422,6 +427,7 @@ export const FileOperationToolCard: React.FC<FileOperationToolCardProps> = ({
   }, [
     applyContentExpandedState,
     isFailed,
+    isUserControlled,
     status,
   ]);
 

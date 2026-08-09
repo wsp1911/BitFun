@@ -87,6 +87,25 @@ not the containing Virtuoso item:
   `useToolCardHeightContract.markUserExpandedSettled()`. Streaming and the
   window where the coordinator is holding a collapse request both use the
   compact size, so a card never changes its own height in the viewport.
+- Merged explore groups follow the same contract, and have exactly two sizes:
+  open at their natural height, and the header row. They must not reintroduce a
+  bounded inner scroll box. A capped box absorbs later rounds merging into it
+  for free, which turns benign tail growth into a shrink no reserve can repay,
+  and a nested scroller breaks the single-scroller geometry the coordinator
+  measures cards against.
+- A projection flag that drives automatic collapse must be monotonic. Round
+  classification is not: a round that has produced only thinking is not explore
+  content yet and becomes so when its first collapsible tool lands. A group is
+  therefore closed only by content that can no longer join it — never by "is
+  not currently the tail".
+- Automatic collapse must not record explicit user state. Recording it outlives
+  the automatic reason for it and pins the card against every later default.
+- A remount must restore what a card showed, not re-derive it. Absorption into
+  an explore group unmounts a round's cards and remounts them where their
+  derived default has already flipped, so re-deriving collapses them in the
+  viewport without ever asking the coordinator. Cards read their initial state
+  through `resolveToolCardExpanded()` and report it through
+  `useToolCardHeightContract({ cardId, isExpanded })`.
 - Deferral keeps interactive cards on screen past the point where their work
   settled. Such a card must retire an action it can no longer perform while
   holding the row that carried it, so the affordance disappears without the

@@ -4,6 +4,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { JSDOM } from 'jsdom';
 
 import { FileOperationToolCard } from './FileOperationToolCard';
+import { clearToolCardExpansionMemory } from './toolCardExpansionMemory';
 import { FlowChatContext } from '../components/modern/FlowChatContext';
 import { FlowChatAutoCollapseContext } from '../components/modern/useFlowChatAutoCollapse';
 import type { FlowToolItem, Session, ToolCardConfig } from '../types/flow-chat';
@@ -146,6 +147,9 @@ describe('FileOperationToolCard', () => {
   let root: Root;
 
   beforeEach(() => {
+    // Card expansion memory is module-level; a shared card id would
+    // otherwise carry state from one test into the next.
+    clearToolCardExpansionMemory();
     dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>', {
       pretendToBeVisual: true,
     });

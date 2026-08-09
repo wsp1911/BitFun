@@ -14,6 +14,7 @@ import type { FlowThinkingItem } from '../types/flow-chat';
 import { useTypewriter } from '../hooks/useTypewriter';
 import { useReportTypewriterReveal } from '../hooks/typewriterRevealGateContext';
 import { useToolCardHeightContract } from './useToolCardHeightContract';
+import { resolveToolCardExpanded } from './toolCardExpansionMemory';
 import { Markdown } from '@/component-library/components/Markdown/Markdown';
 import './ModelThinkingDisplay.scss';
 
@@ -45,8 +46,9 @@ export const ModelThinkingDisplay: React.FC<ModelThinkingDisplayProps> = ({
       ? isActive || isLastItem
       : isLastItem;
 
-  const [isExpanded, setIsExpanded] = useState(shouldDefaultExpanded);
-  const userToggledRef = useRef(false);
+  const [isExpanded, setIsExpanded] = useState(
+    () => resolveToolCardExpanded(thinkingItem.id, shouldDefaultExpanded),
+  );
   const {
     cardRootRef,
     applyExpandedState,
@@ -54,17 +56,19 @@ export const ModelThinkingDisplay: React.FC<ModelThinkingDisplayProps> = ({
     isAutoCollapseInstant,
     hasUserExpandedSettled,
     markUserExpandedSettled,
-  } = useToolCardHeightContract();
+    isUserControlled,
+    markUserControlled,
+  } = useToolCardHeightContract({ cardId: thinkingItem.id, isExpanded });
 
   useLayoutEffect(() => {
-    if (userToggledRef.current) return;
+    if (isUserControlled()) return;
     if (isExpanded !== shouldDefaultExpanded) {
       if (!shouldDefaultExpanded) {
         return requestAutoCollapse(isExpanded, setIsExpanded);
       }
       applyExpandedState(isExpanded, true, setIsExpanded);
     }
-  }, [applyExpandedState, isExpanded, requestAutoCollapse, shouldDefaultExpanded]);
+  }, [applyExpandedState, isExpanded, isUserControlled, requestAutoCollapse, shouldDefaultExpanded]);
 
   // Keep rendering the typewriter output while it drains after the stream
   // ends. Snapping to full `content` here would make the drain invisible
@@ -190,7 +194,7 @@ export const ModelThinkingDisplay: React.FC<ModelThinkingDisplayProps> = ({
 
   const handleToggleClick = () => {
     const nextExpanded = !isExpanded;
-    userToggledRef.current = true;
+    markUserControlled();
     if (nextExpanded && !isActive) {
       markUserExpandedSettled();
     }

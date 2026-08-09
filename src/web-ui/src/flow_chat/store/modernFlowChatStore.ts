@@ -170,8 +170,34 @@ function isExploreOnlyRound(round: ModelRound): boolean {
     }
     return item.type === 'text' || item.type === 'thinking';
   });
-  
+
   return allItemsCollapsible;
+}
+
+/**
+ * `isExploreOnlyRound` is not monotonic while a round streams. A round that has
+ * so far produced only thinking is not explore-only, yet it becomes explore-only
+ * the moment its first collapsible tool lands — and the group in front of it
+ * absorbs it again. Reading "is no longer the tail" straight off the round order
+ * turns that window into a cut, which closes the previous group mid-turn.
+ *
+ * A round therefore only closes the group in front of it once its verdict can no
+ * longer change: it already carries content that can never be grouped, or it has
+ * stopped growing.
+ */
+function closesPrecedingExploreGroup(round: ModelRound): boolean {
+  if (isExploreOnlyRound(round)) return false;
+
+  if (round.renderHints?.disableExploreGrouping === true) return true;
+
+  const hasUngroupableTool = round.items.some(item => (
+    item.type === 'tool' && !isCollapsibleTool(getEffectiveToolName(item as FlowToolItem))
+  ));
+  if (hasUngroupableTool) return true;
+
+  return isTerminalRoundStatus(round.status)
+    && !round.isStreaming
+    && round.isComplete !== false;
 }
 
 /**
@@ -449,16 +475,14 @@ export function sessionToVirtualItems(session: Session | null): VirtualItem[] {
           const isGroupStreaming = group.rounds.some(
             r => r.isStreaming || r.items.some(isActiveFlowItem),
           );
-          // A group is "cut by critical" when it is no longer the tail of the
-          // turn. Two conditions cover all cases:
-          //   1. group.endIndex < rounds.length - 1: there are rounds after
-          //      this group's last round — they could be non-explore (critical)
-          //      rounds OR another explore group. Either way this group is no
-          //      longer the tail.
-          //      NOTE: checking !isLastGroup alone is NOT sufficient because
-          //      tempGroups only contains explore-only groups; a following
-          //      critical round (e.g. TodoWrite) is invisible to tempGroups
-          //      yet still sits after this group in the rounds array.
+          // A group is "cut by critical" when it is permanently closed. Two
+          // conditions cover all cases:
+          //   1. a later round can no longer join it. Following rounds are
+          //      scanned rather than just counted: tempGroups only contains
+          //      explore-only groups, so a following critical round (e.g.
+          //      TodoWrite) is invisible to tempGroups yet still sits after
+          //      this group in the rounds array. A round whose verdict is still
+          //      open does not count — see closesPrecedingExploreGroup.
           //   2. the caller knows another top-level item follows this segment
           //      (user steering, a completion/failure notice, or a newer turn).
           //
@@ -466,7 +490,7 @@ export function sessionToVirtualItems(session: Session | null): VirtualItem[] {
           // keeps its final action visible; a later conversation item is what
           // makes the group compact.
           const wasCutByCritical =
-            group.endIndex < rounds.length - 1 ||
+            rounds.slice(group.endIndex + 1).some(closesPrecedingExploreGroup) ||
             options.collapseTrailingExploreGroup;
 
           const groupId = group.rounds[0]?.id ?? `explore-group-${turn.id}-${group.startIndex}`;

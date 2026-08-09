@@ -12,6 +12,7 @@ import { CopyableTextPreview } from '../components/CopyableTextPreview';
 import { ToolTimeoutIndicator } from './ToolTimeoutIndicator';
 import { DotMatrixLoader } from '../../component-library';
 import { useToolCardHeightContract } from './useToolCardHeightContract';
+import { resolveToolCardExpanded } from './toolCardExpansionMemory';
 import { formatSessionViewPreviewText } from '../utils/sessionViewPreview';
 import './ExecProcessToolCard.scss';
 
@@ -186,8 +187,9 @@ export const ExecProcessToolCardView: React.FC<ExecProcessToolCardViewProps> = (
   const toolId = toolItem.id ?? toolItem.toolCall?.id;
   const icon = <Terminal size={16} className="terminal-card-icon" />;
 
-  const [isExpanded, setIsExpandedState] = useState(() => getInitialExpandedState(status));
-  const userToggledRef = useRef(false);
+  const [isExpanded, setIsExpandedState] = useState(
+    () => resolveToolCardExpanded(toolId, getInitialExpandedState(status)),
+  );
   const commandRef = useRef<HTMLElement | null>(null);
   const outputRendererRef = useRef<TerminalOutputRendererHandle | null>(null);
   const [isPrimaryTextTruncated, setIsPrimaryTextTruncated] = useState(false);
@@ -198,7 +200,9 @@ export const ExecProcessToolCardView: React.FC<ExecProcessToolCardViewProps> = (
     isAutoCollapseInstant,
     hasUserExpandedSettled,
     markUserExpandedSettled,
-  } = useToolCardHeightContract();
+    isUserControlled,
+    markUserControlled,
+  } = useToolCardHeightContract({ cardId: toolId, isExpanded });
 
   const applyExecExpandedState = useCallback((nextExpanded: boolean) => {
     if (nextExpanded === isExpanded) {
@@ -209,15 +213,15 @@ export const ExecProcessToolCardView: React.FC<ExecProcessToolCardViewProps> = (
   }, [applyExpandedState, isExpanded, onExpand]);
 
   const toggleExpanded = useCallback(() => {
-    userToggledRef.current = true;
+    markUserControlled();
     if (!isExpanded && isCollapsedStatus(status)) {
       markUserExpandedSettled();
     }
     applyExecExpandedState(!isExpanded);
-  }, [applyExecExpandedState, isExpanded, markUserExpandedSettled, status]);
+  }, [applyExecExpandedState, isExpanded, markUserControlled, markUserExpandedSettled, status]);
 
   useLayoutEffect(() => {
-    if (userToggledRef.current) {
+    if (isUserControlled()) {
       return;
     }
 
@@ -231,6 +235,7 @@ export const ExecProcessToolCardView: React.FC<ExecProcessToolCardViewProps> = (
   }, [
     applyExecExpandedState,
     isExpanded,
+    isUserControlled,
     requestAutoCollapse,
     status,
   ]);

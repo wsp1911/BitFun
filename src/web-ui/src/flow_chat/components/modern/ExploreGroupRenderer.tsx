@@ -4,14 +4,11 @@
  * Renders merged explore-only rounds as a collapsible region.
  */
 
-import React, { useRef, useMemo, useCallback, useEffect, useLayoutEffect, useState } from 'react';
+import React, { useMemo, useCallback, useLayoutEffect, useState } from 'react';
 import { ChevronRight } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import type { FlowItem, FlowToolItem, FlowTextItem, FlowThinkingItem, ToolRejectOptions } from '../../types/flow-chat';
 import type { ExploreGroupData } from '../../store/modernFlowChatStore';
-import { createLogger } from '@/shared/utils/logger';
-
-const log = createLogger('ExploreGroupRenderer');
 import { FlowTextBlock } from '../FlowTextBlock';
 import { FlowToolCard } from '../FlowToolCard';
 import { ModelThinkingDisplay } from '../../tool-cards/ModelThinkingDisplay';
@@ -52,9 +49,7 @@ export const ExploreGroupRenderer: React.FC<ExploreGroupRendererProps> = React.m
   turnId,
 }) => {
   const { t } = useTranslation('flow-chat');
-  const containerRef = useRef<HTMLDivElement>(null);
-  const [scrollState, setScrollState] = useState({ hasScroll: false, atTop: true, atBottom: true });
-  
+
   const {
     onExploreGroupToggle,
     onCollapseGroup,
@@ -69,130 +64,44 @@ export const ExploreGroupRenderer: React.FC<ExploreGroupRendererProps> = React.m
     isLastGroupInTurn,
     wasCutByCritical,
   } = data;
-  const prevWasCutRef = useRef(wasCutByCritical);
   const {
     cardRootRef,
     applyExpandedState,
+    requestAutoCollapse,
+    isAutoCollapseInstant,
   } = useToolCardHeightContract();
-  
+
   const hasExplicitState = exploreGroupStates?.has(groupId) ?? false;
   const explicitExpanded = exploreGroupStates?.get(groupId) ?? false;
-  // Default: expanded while the group is still the tail; collapsed once cut.
-  const defaultExpanded = !wasCutByCritical;
-  const isExpanded = hasExplicitState ? explicitExpanded : defaultExpanded;
+  // Being cut must not collapse the group during render: the coordinator owns
+  // when that happens, and until then the group stays open in the viewport. A
+  // group that mounts already cut — history, or scrolling back into the
+  // overscan band — starts compact instead of expanding and collapsing again.
+  const [isAutoExpanded, setIsAutoExpanded] = useState(!wasCutByCritical);
+  const isExpanded = hasExplicitState ? explicitExpanded : isAutoExpanded;
   const isCollapsed = !isExpanded;
   const groupKind = getExploreGroupKind(stats, allItems.length);
   // Header is always interactive so the user can collapse/expand at any time.
   const allowManualToggle = true;
 
-  const checkScrollState = useCallback(() => {
-    const el = containerRef.current;
-    if (!el) {
-      return;
-    }
-
-    const next = {
-      hasScroll: el.scrollHeight > el.clientHeight + 1,
-      atTop: el.scrollTop <= 5,
-      atBottom: el.scrollTop + el.clientHeight >= el.scrollHeight - 5,
-    };
-    // Shallow-compare so unchanged scroll edges do not trigger a re-render.
-    setScrollState(prev => (
-      prev.hasScroll === next.hasScroll &&
-      prev.atTop === next.atTop &&
-      prev.atBottom === next.atBottom
-        ? prev
-        : next
-    ));
-  }, []);
-
-  // rAF-merge the raw scroll events; only one state check per frame.
-  const scrollFrameRef = useRef<number | null>(null);
-  const handleContentScroll = useCallback(() => {
-    if (scrollFrameRef.current !== null) {
-      return;
-    }
-    scrollFrameRef.current = requestAnimationFrame(() => {
-      scrollFrameRef.current = null;
-      checkScrollState();
-    });
-  }, [checkScrollState]);
-  useEffect(() => () => {
-    if (scrollFrameRef.current !== null) {
-      cancelAnimationFrame(scrollFrameRef.current);
-    }
-  }, []);
-
-  // One-shot auto-collapse: fires exactly once when the group transitions from
-  // tail (wasCutByCritical=false) to cut (wasCutByCritical=true).
+  // A cut group asks the FlowChat coordinator to collapse it, which happens only
+  // once the group is fully outside the viewport. The guard is a state
+  // predicate, not a transition edge: the effect re-registers whenever it
+  // re-runs, so a dependency change cannot silently drop a pending request.
   //
-  // Do not use `isExpanded` to guard this effect. The render that flips
-  // `wasCutByCritical` also recomputes the default expanded state. No explicit
-  // state means the live-tail default may collapse naturally; an explicit
-  // state is user intent and must not be overwritten.
+  // An explicit state is user intent and must not be overwritten. The automatic
+  // collapse deliberately does not record explicit state either — that is
+  // reserved for the user, and recording it here would outlive its own reason.
   useLayoutEffect(() => {
-    const justGotCut = wasCutByCritical && !prevWasCutRef.current;
-    prevWasCutRef.current = wasCutByCritical;
-
-    if (!justGotCut || hasExplicitState) return;
-
-    log.debug('explore group cut by critical', { groupId });
-
-    applyExpandedState(true, false, () => {
-      onCollapseGroup?.(groupId);
-    });
+    if (hasExplicitState || !wasCutByCritical || !isAutoExpanded) return;
+    return requestAutoCollapse(isAutoExpanded, setIsAutoExpanded);
   }, [
-    applyExpandedState,
-    groupId,
     hasExplicitState,
+    isAutoExpanded,
+    requestAutoCollapse,
     wasCutByCritical,
-    onCollapseGroup,
   ]);
-  
-  // Auto-scroll to bottom while the group is still the tail and new items arrive.
-  // Use double requestAnimationFrame to ensure the browser has completed
-  // layout of newly added content before we measure scrollHeight.
-  useEffect(() => {
-    if (!isCollapsed && isLastGroupInTurn && !wasCutByCritical && containerRef.current) {
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
-          if (containerRef.current) {
-            containerRef.current.scrollTop = containerRef.current.scrollHeight;
-            checkScrollState();
-          }
-        });
-      });
-    }
-  }, [allItems, checkScrollState, isCollapsed, isLastGroupInTurn, wasCutByCritical]);
 
-  useEffect(() => {
-    if (!isExpanded) {
-      setScrollState({ hasScroll: false, atTop: true, atBottom: true });
-      return;
-    }
-
-    const el = containerRef.current;
-    if (!el) {
-      return;
-    }
-
-    const frameId = requestAnimationFrame(checkScrollState);
-
-    if (typeof ResizeObserver === 'undefined') {
-      return () => cancelAnimationFrame(frameId);
-    }
-
-    const observer = new ResizeObserver(() => {
-      checkScrollState();
-    });
-    observer.observe(el);
-
-    return () => {
-      cancelAnimationFrame(frameId);
-      observer.disconnect();
-    };
-  }, [allItems, checkScrollState, isExpanded]);
-  
   // Build summary text with i18n.
   const displaySummary = useMemo(() => {
     const { readCount, searchCount, commandCount } = stats;
@@ -234,12 +143,6 @@ export const ExploreGroupRenderer: React.FC<ExploreGroupRendererProps> = React.m
     'explore-region--collapsible',
     isCollapsed ? 'explore-region--collapsed' : 'explore-region--expanded',
     isGroupStreaming ? 'explore-region--streaming' : null,
-    // --bounded: group is still growing (tail, not yet cut). Controls fixed
-    // max-height and gradient masks regardless of streaming state.
-    !wasCutByCritical ? 'explore-region--bounded' : null,
-    scrollState.hasScroll ? 'explore-region--has-scroll' : null,
-    scrollState.atTop ? 'explore-region--at-top' : null,
-    scrollState.atBottom ? 'explore-region--at-bottom' : null,
   ].filter(Boolean).join(' ');
   return (
     <div data-bf-component="explore-group" data-bf-part="root" data-bf-state={isExpanded ? 'expanded' : undefined}
@@ -274,13 +177,12 @@ export const ExploreGroupRenderer: React.FC<ExploreGroupRendererProps> = React.m
         className="explore-region__content-wrapper"
         innerClassName="explore-region__content-inner"
         durationMs={FLOWCHAT_COLLAPSE_DURATION_MS}
+        disableAnimation={isAutoCollapseInstant}
       >
         <div
-          ref={containerRef}
           data-bf-component="explore-group"
           data-bf-part="content"
           className="explore-region__content"
-          onScroll={handleContentScroll}
           data-testid="chat-explore-group-content"
           data-group-kind={groupKind}
           data-expanded={isExpanded ? 'true' : 'false'}

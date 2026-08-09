@@ -5,6 +5,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { JSDOM } from 'jsdom';
 
 import { ExecProcessToolCardView, type ExecProcessCardModel } from './ExecProcessToolCardView';
+import { clearToolCardExpansionMemory } from './toolCardExpansionMemory';
 import { FlowChatAutoCollapseContext } from '../components/modern/useFlowChatAutoCollapse';
 import type { FlowToolItem } from '../types/flow-chat';
 
@@ -100,6 +101,9 @@ describe('ExecProcessToolCardView', () => {
   let root: Root;
 
   beforeEach(() => {
+    // Card expansion memory is module-level; a shared card id would
+    // otherwise carry state from one test into the next.
+    clearToolCardExpansionMemory();
     dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>', {
       pretendToBeVisual: true,
     });
@@ -287,6 +291,51 @@ describe('ExecProcessToolCardView', () => {
 
       expect(container.querySelector('.base-tool-card.expanded')).not.toBeNull();
       expect(lastMaxRows()).toBe(15);
+    });
+
+    // An explore group absorbing a round unmounts the round's cards and
+    // remounts them inside the group. Re-deriving the default there would
+    // collapse a settled card in the viewport, bypassing the coordinator.
+    it('restores what it showed across a remount instead of re-deriving it', () => {
+      act(() => {
+        root.render(renderCard('running'));
+      });
+      expect(container.querySelector('.base-tool-card.expanded')).not.toBeNull();
+
+      act(() => root.unmount());
+      root = createRoot(container);
+      act(() => {
+        root.render(renderCard('completed'));
+      });
+
+      expect(container.querySelector('.base-tool-card.expanded')).not.toBeNull();
+    });
+
+    it('mounts a settled card collapsed when it has never been shown', () => {
+      act(() => {
+        root.render(renderCard('completed'));
+      });
+
+      expect(container.querySelector('.base-tool-card.expanded')).toBeNull();
+    });
+
+    it('keeps a user collapse across a remount instead of auto-expanding again', () => {
+      act(() => {
+        root.render(renderCard('running'));
+      });
+      const card = container.querySelector('.base-tool-card') as HTMLElement | null;
+      act(() => {
+        card?.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+      });
+      expect(container.querySelector('.base-tool-card.expanded')).toBeNull();
+
+      act(() => root.unmount());
+      root = createRoot(container);
+      act(() => {
+        root.render(renderCard('running'));
+      });
+
+      expect(container.querySelector('.base-tool-card.expanded')).toBeNull();
     });
 
     it('does not treat a toggle made while running as a request for the full output', () => {

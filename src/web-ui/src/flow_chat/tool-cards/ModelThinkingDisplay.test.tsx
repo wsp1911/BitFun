@@ -5,6 +5,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ModelThinkingDisplay } from './ModelThinkingDisplay';
+import { clearToolCardExpansionMemory } from './toolCardExpansionMemory';
 import { FlowChatAutoCollapseContext } from '../components/modern/useFlowChatAutoCollapse';
 import type { FlowThinkingItem } from '../types/flow-chat';
 
@@ -48,6 +49,9 @@ describe('ModelThinkingDisplay', () => {
   let root: Root;
 
   beforeEach(() => {
+    // Card expansion memory is module-level; a shared card id would
+    // otherwise carry state from one test into the next.
+    clearToolCardExpansionMemory();
     container = document.createElement('div');
     document.body.appendChild(container);
     root = createRoot(container);
@@ -71,6 +75,32 @@ describe('ModelThinkingDisplay', () => {
   );
   const content = () => container.querySelector('[data-testid="chat-thinking-content"]');
   const isComfortable = () => content()?.classList.contains('thinking-content--comfortable');
+
+  // An explore group absorbing a round unmounts the round's cards and remounts
+  // them inside the group, where they are no longer the last item. Re-deriving
+  // the default there would collapse the card in the viewport without ever
+  // asking the coordinator.
+  it('restores what it showed across a remount instead of re-deriving it', () => {
+    act(() => root.render(renderCard(true)));
+    expect(container.firstElementChild?.getAttribute('data-expanded')).toBe('true');
+
+    act(() => root.unmount());
+    container.remove();
+    container = document.createElement('div');
+    document.body.appendChild(container);
+    root = createRoot(container);
+
+    // Fresh mount, settled, no longer the last item: the shape of an absorption.
+    act(() => root.render(renderCard(false, false)));
+
+    expect(container.firstElementChild?.getAttribute('data-expanded')).toBe('true');
+  });
+
+  it('mounts collapsed when the card has never been shown', () => {
+    act(() => root.render(renderCard(false, false)));
+
+    expect(container.firstElementChild?.getAttribute('data-expanded')).toBe('false');
+  });
 
   it('keeps the compact height across streaming and settling', () => {
     act(() => root.render(renderCard(true)));

@@ -815,6 +815,75 @@ describe('sessionToVirtualItems explore grouping', () => {
     });
   });
 
+  describe('cutting a trailing explore group', () => {
+    const makeThinkingItem = (id: string) => ({
+      id,
+      type: 'thinking' as const,
+      content: 'Deciding what to read next',
+      isStreaming: true,
+      timestamp: 1100,
+      status: 'streaming' as const,
+    });
+
+    const withSecondRound = (sessionId: string, secondRound: ModelRound): Session => makeSession({
+      sessionId,
+      dialogTurns: [{
+        id: 'turn-1',
+        sessionId,
+        userMessage: { id: 'user-1', content: 'Help', timestamp: 900 },
+        modelRounds: [makeRound({ id: 'round-1' }), secondRound],
+        status: 'processing',
+        startTime: 900,
+      }],
+    });
+
+    // `isExploreOnlyRound` is not monotonic while a round streams: this round
+    // joins the group as soon as its first collapsible tool lands, so treating
+    // the window before that as a cut closes the group mid-turn.
+    it('does not cut while the next round can still join it', () => {
+      const items = sessionToVirtualItems(withSecondRound('undecided-round-session', makeRound({
+        id: 'round-2',
+        items: [makeThinkingItem('thinking-1')],
+        isStreaming: true,
+        isComplete: false,
+        status: 'streaming',
+      })));
+
+      expect(items.map(item => item.type)).toEqual(['user-message', 'explore-group', 'model-round']);
+      expect(items[1]).toMatchObject({
+        type: 'explore-group',
+        data: { groupId: 'round-1', wasCutByCritical: false },
+      });
+    });
+
+    it('cuts once the next round settles without joining it', () => {
+      const items = sessionToVirtualItems(withSecondRound('settled-round-session', makeRound({
+        id: 'round-2',
+        items: [makeTextItem('text-2', 'Here is what I found.')],
+      })));
+
+      expect(items[1]).toMatchObject({
+        type: 'explore-group',
+        data: { groupId: 'round-1', wasCutByCritical: true },
+      });
+    });
+
+    it('cuts as soon as the next round runs a tool that can never be grouped', () => {
+      const items = sessionToVirtualItems(withSecondRound('critical-tool-session', makeRound({
+        id: 'round-2',
+        items: [makeThinkingItem('thinking-1'), makeTool('tool-2', 'Write', 'running')],
+        isStreaming: true,
+        isComplete: false,
+        status: 'streaming',
+      })));
+
+      expect(items[1]).toMatchObject({
+        type: 'explore-group',
+        data: { groupId: 'round-1', wasCutByCritical: true },
+      });
+    });
+  });
+
   it('auto-collapses non-trailing explore groups during an active turn', () => {
     const session = makeSession({
       dialogTurns: [{

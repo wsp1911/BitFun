@@ -23,6 +23,7 @@ import { DotMatrixLoader, IconButton } from '../../component-library';
 import { LazyTerminalOutputRenderer } from '@/tools/terminal/components/LazyTerminalOutputRenderer';
 import { createLogger } from '@/shared/utils/logger';
 import { useToolCardHeightContract } from './useToolCardHeightContract';
+import { resolveToolCardExpanded } from './toolCardExpansionMemory';
 import { getTerminalViewState, type TerminalViewState } from './terminalToolCardState';
 import { ToolTimeoutIndicator } from './ToolTimeoutIndicator';
 import { ToolCardCopyAction, ToolCardHeaderActions } from './ToolCardHeaderActions';
@@ -279,8 +280,9 @@ export const TerminalToolCard: React.FC<TerminalToolCardProps> = ({
   }, [progressLogs, progressMessage]);
 
   const toolId = toolItem.id ?? toolCall?.id;
-  const [isExpanded, setIsExpandedState] = useState(() => getInitialTerminalExpandedState(status));
-  const userToggledRef = useRef(false);
+  const [isExpanded, setIsExpandedState] = useState(
+    () => resolveToolCardExpanded(toolId, getInitialTerminalExpandedState(status)),
+  );
   const {
     cardRootRef,
     applyExpandedState,
@@ -288,7 +290,9 @@ export const TerminalToolCard: React.FC<TerminalToolCardProps> = ({
     isAutoCollapseInstant,
     hasUserExpandedSettled,
     markUserExpandedSettled,
-  } = useToolCardHeightContract();
+    isUserControlled,
+    markUserControlled,
+  } = useToolCardHeightContract({ cardId: toolId, isExpanded });
   const applyTerminalExpandedState = useCallback((nextExpanded: boolean) => {
     if (nextExpanded === isExpanded) {
       return;
@@ -298,12 +302,12 @@ export const TerminalToolCard: React.FC<TerminalToolCardProps> = ({
   }, [applyExpandedState, isExpanded, onExpand]);
 
   const toggleExpanded = useCallback(() => {
-    userToggledRef.current = true;
+    markUserControlled();
     if (!isExpanded && isCollapsedTerminalStatus(status)) {
       markUserExpandedSettled();
     }
     applyTerminalExpandedState(!isExpanded);
-  }, [applyTerminalExpandedState, isExpanded, markUserExpandedSettled, status]);
+  }, [applyTerminalExpandedState, isExpanded, markUserControlled, markUserExpandedSettled, status]);
 
   const [interruptRequested, setInterruptRequested] = useState(false);
   const [isCommandTruncated, setIsCommandTruncated] = useState(false);
@@ -316,7 +320,7 @@ export const TerminalToolCard: React.FC<TerminalToolCardProps> = ({
   }, [status]);
 
   useLayoutEffect(() => {
-    if (userToggledRef.current) {
+    if (isUserControlled()) {
       return;
     }
 
@@ -330,6 +334,7 @@ export const TerminalToolCard: React.FC<TerminalToolCardProps> = ({
   }, [
     applyTerminalExpandedState,
     isExpanded,
+    isUserControlled,
     requestAutoCollapse,
     status,
   ]);

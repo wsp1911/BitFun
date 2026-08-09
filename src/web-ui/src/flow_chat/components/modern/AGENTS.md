@@ -29,12 +29,20 @@ Also follow the repository and Web UI instructions in the parent guides.
   render; sync it on commit so a discarded render cannot publish a stale value.
 - Keep Virtuoso `followOutput={false}`.
 - One-shot Turn/search/history navigation remains inside `VirtualMessageList`.
-- Automatic tool/thinking-card collapse is requested through the FlowChat
-  coordinator and executes only when the card is fully outside the viewport.
-  Manual collapse remains immediate and animated.
+- Automatic tool/thinking-card and explore-group collapse is requested through
+  the FlowChat coordinator and executes only when the card is fully outside the
+  viewport. Manual collapse remains immediate and animated.
 - A card never changes its own height in the viewport. Two-size cards stay
   compact through streaming and through the pending-collapse window, and grow
   only on `markUserExpandedSettled()` from a user expand after the work settled.
+- A projection flag that drives automatic collapse must be monotonic, and the
+  collapse must not record explicit user state.
+- A remount restores what a card showed rather than re-deriving it, through
+  `resolveToolCardExpanded()` plus `useToolCardHeightContract({ cardId,
+  isExpanded })`. Re-deriving collapses absorbed cards in the viewport.
+- Explore groups render at their natural height. Do not reintroduce a bounded
+  inner scroll box; it converts tail growth into an unrepayable shrink and
+  breaks the coordinator's single-scroller geometry.
 - Footer height represents the current input-stack layout plus the single Turn
   stage and real footer content such as history state and `RuntimeStatusSlot`.
 - Stable virtual-item keys and projection identity must be preserved.

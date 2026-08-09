@@ -50,6 +50,17 @@ describe('FlowChat collapse spacing', () => {
     );
   });
 
+  // A capped explore body absorbs later rounds merging into it for free, which
+  // turns benign tail growth into a shrink, and its nested scroller breaks the
+  // single-scroller geometry the auto-collapse coordinator measures against.
+  it('leaves the explore body unbounded and unscrollable', () => {
+    const exploreStyles = readSource('./ExploreRegion.scss');
+
+    expect(exploreStyles).not.toMatch(/max-height/);
+    expect(exploreStyles).not.toMatch(/overflow-y/);
+    expect(exploreStyles).not.toContain('explore-region--bounded');
+  });
+
   it('keeps bordered tool and subagent bodies padded on every side', () => {
     const baseToolStyles = readSource('../../tool-cards/BaseToolCard.scss');
     const compactToolStyles = readSource('../../tool-cards/CompactToolCard.scss');

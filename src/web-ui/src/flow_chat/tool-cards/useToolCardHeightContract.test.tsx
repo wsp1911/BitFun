@@ -4,6 +4,7 @@ import React, { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useToolCardHeightContract } from './useToolCardHeightContract';
+import { clearToolCardExpansionMemory } from './toolCardExpansionMemory';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -21,6 +22,9 @@ describe('useToolCardHeightContract', () => {
   let root: Root;
 
   beforeEach(() => {
+    // Card expansion memory is module-level; a shared card id would
+    // otherwise carry state from one test into the next.
+    clearToolCardExpansionMemory();
     container = document.createElement('div');
     document.body.appendChild(container);
     root = createRoot(container);

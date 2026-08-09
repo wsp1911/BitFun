@@ -14,6 +14,7 @@ const MODEL_ROUND_TEXT_BASE_HEIGHT_PX = 72;
 const MODEL_ROUND_TEXT_LINE_HEIGHT_PX = 30;
 const TOOL_CARD_ESTIMATE_HEIGHT_PX = 88;
 const EXPLORE_GROUP_BASE_HEIGHT_PX = 96;
+const EXPLORE_GROUP_COLLAPSED_HEIGHT_PX = 28;
 const ESTIMATED_TEXT_CHARS_PER_LINE = 60;
 
 export function getLeadingVirtualItemIndexDelta<T>(
@@ -116,9 +117,17 @@ function estimateUserMessageHeight(content: string | undefined): number {
   );
 }
 
+/**
+ * A cut group renders as a single header row, which is the common case in a
+ * transcript. An open group renders at its natural height with no inner scroll
+ * box, so the row count is the estimate — the ceiling only keeps a very long
+ * exploration from dominating the pre-measurement layout.
+ */
 function estimateExploreGroupHeight(item: Extract<VirtualItem, { type: 'explore-group' }>): number {
-  const visibleRowCount = Math.min(10, item.data.allItems.length);
-  return Math.min(420, EXPLORE_GROUP_BASE_HEIGHT_PX + visibleRowCount * 24);
+  if (item.data.wasCutByCritical) {
+    return EXPLORE_GROUP_COLLAPSED_HEIGHT_PX;
+  }
+  return Math.min(1200, EXPLORE_GROUP_BASE_HEIGHT_PX + item.data.allItems.length * 24);
 }
 
 export function estimateVirtualMessageItemHeight(item: VirtualItem): number {
