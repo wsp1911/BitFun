@@ -1,10 +1,9 @@
-use serde::Serialize;
 use serde_json::{Map, Value};
 use std::fmt;
 
 pub const CALL_DEFERRED_TOOL_NAME: &str = "CallDeferredTool";
 
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct CallDeferredToolInput {
     pub tool_name: String,
     pub args: Value,
@@ -12,16 +11,16 @@ pub struct CallDeferredToolInput {
 
 impl CallDeferredToolInput {
     pub fn canonical_wire_arguments(&self) -> Value {
+        let mut call = Map::new();
+        call.insert(self.tool_name.clone(), self.args.clone());
         serde_json::json!({
-            "tool_name": self.tool_name,
-            "args": self.args,
+            "call": Value::Object(call),
         })
     }
 
-    /// Serialize through the typed envelope so `tool_name` precedes `args` in
-    /// provider-visible replay JSON even when JSON object maps reorder keys.
+    /// Keep replay JSON in the same single-key envelope exposed to providers.
     pub fn canonical_wire_json(&self) -> serde_json::Result<String> {
-        serde_json::to_string(self)
+        serde_json::to_string(&self.canonical_wire_arguments())
     }
 }
 
@@ -32,6 +31,8 @@ pub enum CallDeferredToolInputError {
     EmptyToolName,
     MissingArgs,
     ArgsMustBeObject,
+    CallMustBeObject,
+    CallMustContainExactlyOneTool,
     UnexpectedField(String),
 }
 
@@ -45,6 +46,10 @@ impl fmt::Display for CallDeferredToolInputError {
             Self::EmptyToolName => write!(formatter, "tool_name cannot be empty"),
             Self::MissingArgs => write!(formatter, "args is required"),
             Self::ArgsMustBeObject => write!(formatter, "args must be an object"),
+            Self::CallMustBeObject => write!(formatter, "call must be an object"),
+            Self::CallMustContainExactlyOneTool => {
+                write!(formatter, "call must contain exactly one deferred tool")
+            }
             Self::UnexpectedField(field) => {
                 write!(formatter, "unexpected CallDeferredTool field: {field}")
             }
@@ -58,16 +63,17 @@ pub fn call_deferred_tool_input_schema() -> Value {
     serde_json::json!({
         "type": "object",
         "additionalProperties": false,
-        "required": ["tool_name", "args"],
+        "required": ["call"],
         "properties": {
-            "tool_name": {
-                "type": "string",
-                "description": "Exact deferred tool name previously loaded with GetToolSpec."
-            },
-            "args": {
+            "call": {
                 "type": "object",
-                "additionalProperties": true,
-                "description": "Arguments matching the schema returned by GetToolSpec."
+                "minProperties": 1,
+                "maxProperties": 1,
+                "additionalProperties": {
+                    "type": "object",
+                    "additionalProperties": true
+                },
+                "description": "Exactly one property whose name is the deferred tool name and whose value contains that tool's arguments."
             }
         }
     })
@@ -80,9 +86,40 @@ pub fn call_deferred_tool_short_description() -> String {
 pub fn call_deferred_tool_description() -> String {
     r#"Call a deferred tool after reading its full schema with GetToolSpec.
 
-Pass the exact deferred tool name in tool_name and put only that tool's arguments inside args.
-The order is important. ALWAYS output tool_name first, then args."#
+Pass exactly one property inside call. Its key is the exact deferred tool name and its value contains only that tool's arguments.
+For example: {"call":{"CreatePlan":{"name":"Plan","overview":"...","plan":"..."}}}."#
         .to_string()
+}
+
+fn parse_tool_keyed_call_ref<'a>(
+    object: &'a Map<String, Value>,
+) -> Result<Option<(&'a str, &'a Value)>, CallDeferredToolInputError> {
+    let Some(call) = object.get("call") else {
+        return Ok(None);
+    };
+
+    if let Some(field) = object.keys().find(|field| field.as_str() != "call") {
+        return Err(CallDeferredToolInputError::UnexpectedField(field.clone()));
+    }
+
+    let call = call
+        .as_object()
+        .ok_or(CallDeferredToolInputError::CallMustBeObject)?;
+    let mut entries = call.iter();
+    let Some((tool_name, args)) = entries.next() else {
+        return Err(CallDeferredToolInputError::CallMustContainExactlyOneTool);
+    };
+    if entries.next().is_some() {
+        return Err(CallDeferredToolInputError::CallMustContainExactlyOneTool);
+    }
+    if tool_name.trim().is_empty() {
+        return Err(CallDeferredToolInputError::EmptyToolName);
+    }
+    if !args.is_object() {
+        return Err(CallDeferredToolInputError::ArgsMustBeObject);
+    }
+
+    Ok(Some((tool_name, args)))
 }
 
 pub fn parse_call_deferred_tool_input(
@@ -92,6 +129,14 @@ pub fn parse_call_deferred_tool_input(
         .as_object()
         .ok_or(CallDeferredToolInputError::InputMustBeObject)?;
 
+    if let Some((tool_name, args)) = parse_tool_keyed_call_ref(object)? {
+        return Ok(CallDeferredToolInput {
+            tool_name: tool_name.to_string(),
+            args: args.clone(),
+        });
+    }
+
+    // Read the previous envelope so historical calls can still be projected.
     let tool_name = object
         .get("tool_name")
         .and_then(Value::as_str)
@@ -125,6 +170,11 @@ fn parse_call_deferred_tool_input_ref(
         .as_object()
         .ok_or(CallDeferredToolInputError::InputMustBeObject)?;
 
+    if let Some(parsed) = parse_tool_keyed_call_ref(object)? {
+        return Ok(parsed);
+    }
+
+    // Read the previous envelope so historical calls can still be projected.
     if let Some(field) = object
         .keys()
         .find(|field| field.as_str() != "tool_name" && field.as_str() != "args")
@@ -222,9 +272,11 @@ impl ResolvedToolInvocation {
         match self.kind {
             ToolInvocationKind::Direct => self.wire_arguments = arguments,
             ToolInvocationKind::Deferred { .. } => {
-                if let Some(object) = self.wire_arguments.as_object_mut() {
-                    object.insert("args".to_string(), arguments);
+                self.wire_arguments = CallDeferredToolInput {
+                    tool_name: self.effective_tool_name.clone(),
+                    args: arguments,
                 }
+                .canonical_wire_arguments();
             }
         }
     }

@@ -387,8 +387,9 @@ mod tests {
     #[tokio::test]
     async fn deferred_started_event_keeps_wire_input_and_effective_name() {
         let wire_arguments = serde_json::json!({
-            "tool_name": "CreatePlan",
-            "args": { "name": "Plan" }
+            "call": {
+                "CreatePlan": { "name": "Plan" }
+            }
         });
         let mut task = test_task("tool-1");
         task.tool_call.tool_name = bitfun_agent_tools::CALL_DEFERRED_TOOL_NAME.to_string();

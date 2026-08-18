@@ -3845,9 +3845,9 @@ mod tests {
 
         let mut call = test_tool_call("deferred_1", CALL_DEFERRED_TOOL_NAME);
         call.arguments = json!({
-            "tool_name": "get_weather",
-            "args": { "city": "Shanghai" },
-            "city": "Beijing"
+            "call": {
+                "get_weather": { "city": "Shanghai" }
+            }
         });
 
         let results = pipeline
@@ -3877,9 +3877,10 @@ mod tests {
         assert_eq!(
             task.invocation.wire_arguments,
             json!({
-                "tool_name": "get_weather",
-                "args": {
-                    "city": "Shanghai"
+                "call": {
+                    "get_weather": {
+                        "city": "Shanghai"
+                    }
                 }
             })
         );
@@ -3915,8 +3916,9 @@ mod tests {
 
         let mut call = test_tool_call("deferred_stale", CALL_DEFERRED_TOOL_NAME);
         call.arguments = json!({
-            "tool_name": "get_weather",
-            "args": { "city": "Shanghai" }
+            "call": {
+                "get_weather": { "city": "Shanghai" }
+            }
         });
 
         let results = pipeline
@@ -3964,8 +3966,9 @@ mod tests {
 
         let mut call = test_tool_call("deferred_locked", CALL_DEFERRED_TOOL_NAME);
         call.arguments = json!({
-            "tool_name": "get_weather",
-            "args": { "city": "Shanghai" }
+            "call": {
+                "get_weather": { "city": "Shanghai" }
+            }
         });
 
         let results = pipeline
@@ -4000,8 +4003,9 @@ mod tests {
 
         let mut call = test_tool_call("deferred_direct", CALL_DEFERRED_TOOL_NAME);
         call.arguments = json!({
-            "tool_name": "get_weather",
-            "args": { "city": "Shanghai" }
+            "call": {
+                "get_weather": { "city": "Shanghai" }
+            }
         });
 
         let results = pipeline

@@ -94,21 +94,26 @@ impl StaticToolProviderPlan for TestProviderPlan {
 }
 
 #[test]
-fn call_deferred_tool_contract_uses_nested_object_arguments() {
+fn call_deferred_tool_contract_uses_tool_keyed_call() {
     let schema = call_deferred_tool_input_schema();
 
-    assert!(call_deferred_tool_description()
-        .contains("The order is important. ALWAYS output tool_name first, then args."));
+    assert!(call_deferred_tool_description().contains("{\"call\":{\"CreatePlan\":"));
     assert_eq!(schema["additionalProperties"], false);
-    assert_eq!(schema["required"], json!(["tool_name", "args"]));
-    assert_eq!(schema["properties"]["args"]["type"], "object");
-    assert_eq!(schema["properties"]["args"]["additionalProperties"], true);
+    assert_eq!(schema["required"], json!(["call"]));
+    assert_eq!(schema["properties"]["call"]["type"], "object");
+    assert_eq!(schema["properties"]["call"]["minProperties"], 1);
+    assert_eq!(schema["properties"]["call"]["maxProperties"], 1);
+    assert_eq!(
+        schema["properties"]["call"]["additionalProperties"]["type"],
+        "object"
+    );
 
     let invocation = ResolvedToolInvocation::from_wire_call(
         CALL_DEFERRED_TOOL_NAME,
         json!({
-            "tool_name": "get_weather",
-            "args": { "city": "Shanghai" }
+            "call": {
+                "get_weather": { "city": "Shanghai" }
+            }
         }),
     )
     .expect("valid deferred tool invocation");
@@ -125,8 +130,9 @@ fn call_deferred_tool_contract_uses_nested_object_arguments() {
 #[test]
 fn effective_tool_invocation_borrows_deferred_identity_from_wire_call() {
     let arguments = json!({
-        "tool_name": "get_weather",
-        "args": { "city": "Shanghai" }
+        "call": {
+            "get_weather": { "city": "Shanghai" }
+        }
     });
 
     let (tool_name, effective_arguments) =
@@ -137,7 +143,7 @@ fn effective_tool_invocation_borrows_deferred_identity_from_wire_call() {
 }
 
 #[test]
-fn call_deferred_tool_contract_normalizes_overflow_and_missing_args() {
+fn call_deferred_tool_contract_reads_legacy_overflow_and_writes_canonical_call() {
     let overflow = ResolvedToolInvocation::from_wire_call(
         CALL_DEFERRED_TOOL_NAME,
         json!({
@@ -162,11 +168,12 @@ fn call_deferred_tool_contract_normalizes_overflow_and_missing_args() {
     assert_eq!(
         overflow.wire_arguments,
         json!({
-            "tool_name": "get_weather",
-            "args": {
-                "city": "Shanghai",
-                "unit": "celsius",
-                "language": "zh-CN"
+            "call": {
+                "get_weather": {
+                    "city": "Shanghai",
+                    "unit": "celsius",
+                    "language": "zh-CN"
+                }
             }
         })
     );
@@ -190,8 +197,9 @@ fn call_deferred_tool_contract_rejects_non_object_arguments() {
     let encoded = ResolvedToolInvocation::from_wire_call(
         CALL_DEFERRED_TOOL_NAME,
         json!({
-            "tool_name": "get_weather",
-            "args": "{\"city\":\"Shanghai\"}"
+            "call": {
+                "get_weather": "{\"city\":\"Shanghai\"}"
+            }
         }),
     )
     .expect_err("JSON-encoded string arguments must be rejected");
@@ -213,16 +221,17 @@ fn call_deferred_tool_input_serializes_canonical_wire_shape() {
     assert_eq!(
         parsed.canonical_wire_arguments(),
         json!({
-            "tool_name": "CreatePlan",
-            "args": {
-                "overview": "inside",
-                "plan": "# Plan"
+            "call": {
+                "CreatePlan": {
+                    "overview": "inside",
+                    "plan": "# Plan"
+                }
             }
         })
     );
     assert_eq!(
         parsed.canonical_wire_json().expect("canonical JSON"),
-        r##"{"tool_name":"CreatePlan","args":{"overview":"inside","plan":"# Plan"}}"##
+        r##"{"call":{"CreatePlan":{"overview":"inside","plan":"# Plan"}}}"##
     );
 }
 
@@ -231,8 +240,9 @@ fn resolved_tool_invocation_updates_effective_arguments_without_losing_wire_iden
     let mut invocation = ResolvedToolInvocation::from_wire_call(
         CALL_DEFERRED_TOOL_NAME,
         json!({
-            "tool_name": "get_weather",
-            "args": { "city": "Shanghai" }
+            "call": {
+                "get_weather": { "city": "Shanghai" }
+            }
         }),
     )
     .expect("valid deferred tool invocation");
@@ -245,8 +255,9 @@ fn resolved_tool_invocation_updates_effective_arguments_without_losing_wire_iden
     assert_eq!(
         invocation.wire_arguments,
         json!({
-            "tool_name": "get_weather",
-            "args": { "city": "Beijing" }
+            "call": {
+                "get_weather": { "city": "Beijing" }
+            }
         })
     );
 }
@@ -1973,9 +1984,10 @@ fn get_tool_spec_contract_escapes_assistant_detail_for_xml_sections() {
     assert!(
         detail.contains("<calling>\nCall `CallDeferredTool` with arguments matching this schema:")
     );
-    assert!(detail.contains("\"required\": [\"tool_name\", \"args\"]"));
-    assert!(detail.contains("\"tool_name\": {\n      \"const\": \"Git\"\n    }"));
-    assert!(detail.contains("\"args\": {"));
+    assert!(detail.contains("\"required\": [\"call\"]"));
+    assert!(detail.contains("\"required\": [\"Git\"]"));
+    assert!(detail.contains("\"call\": {"));
+    assert!(detail.contains("\"Git\": {"));
     assert!(detail.contains("\"description\": \"Match &lt;tag&gt; &amp; symbols\""));
     assert!(!detail.contains("<input_schema>"));
     assert!(!detail.contains("<execution>"));
@@ -1986,7 +1998,7 @@ fn get_tool_spec_contract_escapes_assistant_detail_for_xml_sections() {
 fn get_tool_spec_contract_preserves_duplicate_load_hint() {
     assert_eq!(
         build_get_tool_spec_duplicate_load_hint("WebFetch"),
-        "Tool 'WebFetch' is already loaded in the current conversation. Do not call GetToolSpec again for it. Use CallDeferredTool with tool_name 'WebFetch' and put the tool arguments inside args."
+        "Tool 'WebFetch' is already loaded in the current conversation. Do not call GetToolSpec again for it. Use CallDeferredTool with call {\"WebFetch\": {...}}, replacing {...} with arguments matching the loaded schema."
     );
 }
 
@@ -2008,7 +2020,7 @@ fn get_tool_spec_contract_builds_duplicate_load_result() {
     assert_eq!(
         result_for_assistant.as_deref(),
         Some(
-            "Tool 'WebFetch' is already loaded in the current conversation. Do not call GetToolSpec again for it. Use CallDeferredTool with tool_name 'WebFetch' and put the tool arguments inside args."
+            "Tool 'WebFetch' is already loaded in the current conversation. Do not call GetToolSpec again for it. Use CallDeferredTool with call {\"WebFetch\": {...}}, replacing {...} with arguments matching the loaded schema."
         )
     );
     assert_eq!(image_attachments, None);
@@ -2049,8 +2061,9 @@ fn get_tool_spec_contract_builds_detail_result() {
     let assistant = result_for_assistant.expect("assistant detail");
     assert!(assistant.contains("Use &lt;repo&gt; &amp; inspect changes."));
     assert!(assistant.contains("Run &lt;safe&gt; git commands"));
-    assert!(assistant.contains("\"tool_name\": {\n      \"const\": \"Git\"\n    }"));
-    assert!(assistant.contains("\"args\": {"));
+    assert!(assistant.contains("\"required\": [\"call\"]"));
+    assert!(assistant.contains("\"required\": [\"Git\"]"));
+    assert!(assistant.contains("\"Git\": {"));
     assert!(!assistant.contains("<input_schema>"));
     assert!(!assistant.contains("<execution>"));
     assert_eq!(image_attachments, None);
@@ -3289,7 +3302,7 @@ async fn get_tool_spec_runtime_facade_owns_tool_result_vector_adapter_shape() {
     assert_eq!(
         result_for_assistant.as_deref(),
         Some(
-            "Tool 'WebFetch' is already loaded in the current conversation. Do not call GetToolSpec again for it. Use CallDeferredTool with tool_name 'WebFetch' and put the tool arguments inside args."
+            "Tool 'WebFetch' is already loaded in the current conversation. Do not call GetToolSpec again for it. Use CallDeferredTool with call {\"WebFetch\": {...}}, replacing {...} with arguments matching the loaded schema."
         )
     );
     assert!(image_attachments.is_none());

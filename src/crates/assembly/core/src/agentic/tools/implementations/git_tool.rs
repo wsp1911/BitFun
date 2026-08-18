@@ -1032,7 +1032,7 @@ impl Tool for GitTool {
 
 This tool provides a safe and convenient way to execute Git commands. It supports common Git operations like status, diff, log, add, commit, branch, checkout, pull, push, and more.
 
-If this definition was returned by `GetToolSpec`, execute it through `CallDeferredTool` with `tool_name` set to `Git` and put the arguments matching the schema below inside `args`. If Git is directly exposed in the available tool list, call it directly instead.
+If this definition was returned by `GetToolSpec`, execute it through `CallDeferredTool` with `call` containing one `Git` property whose value matches the schema below. If Git is directly exposed in the available tool list, call it directly instead.
 
 ## Supported Operations
 

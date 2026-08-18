@@ -94,7 +94,9 @@ describe('FlowToolCard deferred identity', () => {
           toolCall: {
             id: 'tool-1',
             input: {
-              tool_name: 'CreatePlan',
+              call: {
+                CreatePlan: {},
+              },
             },
           },
         }}

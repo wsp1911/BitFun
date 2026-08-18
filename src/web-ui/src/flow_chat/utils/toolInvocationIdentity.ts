@@ -22,6 +22,38 @@ export function effectiveToolInvocation(
   }
 
   const input = wireInput as Record<string, unknown>;
+  if (Object.prototype.hasOwnProperty.call(input, 'call')) {
+    if (
+      input.call === null
+      || typeof input.call !== 'object'
+      || Array.isArray(input.call)
+    ) {
+      return { toolName: wireToolName, input: wireInput, isDeferred: false };
+    }
+
+    const entries = Object.entries(input.call as Record<string, unknown>);
+    if (entries.length !== 1) {
+      return { toolName: wireToolName, input: wireInput, isDeferred: false };
+    }
+
+    const [toolName, args] = entries[0];
+    if (
+      toolName.trim().length === 0
+      || args === null
+      || typeof args !== 'object'
+      || Array.isArray(args)
+    ) {
+      return { toolName: wireToolName, input: wireInput, isDeferred: false };
+    }
+
+    return {
+      toolName,
+      input: args,
+      isDeferred: true,
+    };
+  }
+
+  // Keep projecting historical calls written with the previous envelope.
   if (
     typeof input.tool_name !== 'string'
     || input.tool_name.trim().length === 0

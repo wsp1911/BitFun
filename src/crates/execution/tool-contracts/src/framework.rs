@@ -439,7 +439,7 @@ pub fn validate_get_tool_spec_input(input: &Value) -> ValidationResult {
 
 pub fn build_get_tool_spec_duplicate_load_hint(tool_name: &str) -> String {
     format!(
-        "Tool '{}' is already loaded in the current conversation. Do not call GetToolSpec again for it. Use CallDeferredTool with tool_name '{}' and put the tool arguments inside args.",
+        "Tool '{}' is already loaded in the current conversation. Do not call GetToolSpec again for it. Use CallDeferredTool with call {{\"{}\": {{...}}}}, replacing {{...}} with arguments matching the loaded schema.",
         tool_name, tool_name
     )
 }
@@ -596,10 +596,10 @@ fn build_deferred_tool_calling_schema(tool_name: &str, input_schema: &Value) -> 
     let tool_name = serde_json::to_string(tool_name).unwrap_or_else(|_| "\"\"".to_string());
     let input_schema =
         serde_json::to_string_pretty(input_schema).unwrap_or_else(|_| input_schema.to_string());
-    let input_schema = indent_following_lines(&input_schema, "    ");
+    let input_schema = indent_following_lines(&input_schema, "        ");
 
     format!(
-        "{{\n  \"type\": \"object\",\n  \"additionalProperties\": false,\n  \"required\": [\"tool_name\", \"args\"],\n  \"properties\": {{\n    \"tool_name\": {{\n      \"const\": {tool_name}\n    }},\n    \"args\": {input_schema}\n  }}\n}}"
+        "{{\n  \"type\": \"object\",\n  \"additionalProperties\": false,\n  \"required\": [\"call\"],\n  \"properties\": {{\n    \"call\": {{\n      \"type\": \"object\",\n      \"additionalProperties\": false,\n      \"required\": [{tool_name}],\n      \"properties\": {{\n        {tool_name}: {input_schema}\n      }}\n    }}\n  }}\n}}"
     )
 }
 

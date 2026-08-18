@@ -1648,16 +1648,17 @@ mod tests {
         assert_eq!(
             tool_calls[0].arguments,
             json!({
-                "tool_name": "CreatePlan",
-                "args": {
-                    "overview": "inside",
-                    "plan": "# Plan"
+                "call": {
+                    "CreatePlan": {
+                        "overview": "inside",
+                        "plan": "# Plan"
+                    }
                 }
             })
         );
         assert_eq!(
             tool_calls[0].raw_arguments.as_deref(),
-            Some(r##"{"tool_name":"CreatePlan","args":{"overview":"inside","plan":"# Plan"}}"##)
+            Some(r##"{"call":{"CreatePlan":{"overview":"inside","plan":"# Plan"}}}"##)
         );
     }
 

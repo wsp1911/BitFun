@@ -8,18 +8,33 @@ import {
 describe('toolInvocationIdentity', () => {
   it('derives an effective invocation without changing the wire input', () => {
     const wireInput = {
-      tool_name: 'mcp__docs__search',
-      args: { query: 'identity' },
+      call: {
+        mcp__docs__search: { query: 'identity' },
+      },
     };
 
     expect(effectiveToolInvocation('CallDeferredTool', wireInput)).toEqual({
       toolName: 'mcp__docs__search',
-      input: wireInput.args,
+      input: wireInput.call.mcp__docs__search,
       isDeferred: true,
     });
     expect(wireInput).toEqual({
-      tool_name: 'mcp__docs__search',
-      args: { query: 'identity' },
+      call: {
+        mcp__docs__search: { query: 'identity' },
+      },
+    });
+  });
+
+  it('projects the previous tool_name and args envelope for historical cards', () => {
+    const wireInput = {
+      tool_name: 'CreatePlan',
+      args: { name: 'Plan', overview: 'Overview' },
+    };
+
+    expect(effectiveToolInvocation('CallDeferredTool', wireInput)).toEqual({
+      toolName: 'CreatePlan',
+      input: wireInput.args,
+      isDeferred: true,
     });
   });
 
@@ -80,8 +95,9 @@ describe('toolInvocationIdentity', () => {
       toolCall: {
         id: 'tool-1',
         input: {
-          tool_name: 'Write',
-          args: { file_path: 'README.md', content: 'updated' },
+          call: {
+            Write: { file_path: 'README.md', content: 'updated' },
+          },
         },
       },
       status: 'pending_confirmation' as const,
@@ -92,6 +108,6 @@ describe('toolInvocationIdentity', () => {
     expect(projected.toolName).toBe('Write');
     expect(projected.toolCall.input).toEqual({ file_path: 'README.md', content: 'updated' });
     expect(item.toolName).toBe('CallDeferredTool');
-    expect(item.toolCall.input).toHaveProperty('tool_name', 'Write');
+    expect(item.toolCall.input).toHaveProperty('call.Write');
   });
 });

@@ -470,15 +470,27 @@ describe('deferred tool wire identity', () => {
       event_type: 'ParamsPartial',
       tool_id: 'tool-deferred',
       tool_name: 'CallDeferredTool',
-      params: JSON.stringify({
-        tool_name: 'CreatePlan',
-        args: { name: 'Plan', overview: 'Overview', plan: '# Plan' },
-      }),
+      params: '{"call":{"CreatePlan":{',
+    });
+
+    const identified = FlowChatStore.getInstance()
+      .findToolItem('session-1', 'turn-1', 'tool-deferred') as FlowToolItem;
+    expect(projectEffectiveToolItem(identified)).toMatchObject({
+      toolName: 'CreatePlan',
+      toolCall: { input: {} },
+    });
+
+    processToolParamsPartialInternal('session-1', 'turn-1', {
+      event_type: 'ParamsPartial',
+      tool_id: 'tool-deferred',
+      tool_name: 'CallDeferredTool',
+      params: '"name":"Plan","overview":"Overview","plan":"# Plan"}}}',
     });
 
     const wireInput = {
-      tool_name: 'CreatePlan',
-      args: { name: 'Plan', overview: 'Overview', plan: '# Plan' },
+      call: {
+        CreatePlan: { name: 'Plan', overview: 'Overview', plan: '# Plan' },
+      },
     };
     processToolEvent(context, 'session-1', 'turn-1', 'round-1', {
       event_type: 'Started',
@@ -499,7 +511,7 @@ describe('deferred tool wire identity', () => {
     const effective = projectEffectiveToolItem(tool);
     expect(effective).toMatchObject({
       toolName: 'CreatePlan',
-      toolCall: { input: wireInput.args },
+      toolCall: { input: wireInput.call.CreatePlan },
     });
 
     const turn = FlowChatStore.getInstance().getState().sessions
@@ -513,8 +525,9 @@ describe('deferred tool wire identity', () => {
 
   it('uses wire input for deferred confirmation and derives the Write view', () => {
     const wireInput = {
-      tool_name: 'Write',
-      args: { file_path: 'README.md', content: 'updated' },
+      call: {
+        Write: { file_path: 'README.md', content: 'updated' },
+      },
     };
     const tool: FlowToolItem = {
       id: 'tool-write',
@@ -547,14 +560,15 @@ describe('deferred tool wire identity', () => {
     });
     expect(projectEffectiveToolItem(updated)).toMatchObject({
       toolName: 'Write',
-      toolCall: { input: wireInput.args },
+      toolCall: { input: wireInput.call.Write },
     });
   });
 
   it('keeps effective identity for Streaming even when no Started event arrives', () => {
     const wireInput = {
-      tool_name: 'mcp__docs__search',
-      args: { query: 'identity' },
+      call: {
+        mcp__docs__search: { query: 'identity' },
+      },
     };
     const tool: FlowToolItem = {
       id: 'tool-streaming',

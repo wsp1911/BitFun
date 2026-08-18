@@ -660,7 +660,7 @@ mod tests {
             .iter()
             .find(|tool| tool.name == "CallDeferredTool")
             .expect("deferred execution gateway definition");
-        assert_eq!(gateway.parameters["required"], json!(["tool_name", "args"]));
+        assert_eq!(gateway.parameters["required"], json!(["call"]));
     }
 
     #[tokio::test]
