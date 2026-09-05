@@ -414,9 +414,14 @@ canvas-runtime = [
 ]
 runtime-services = ["dep:openbitfun-runtime-services"]
 legacy-migration = [
+    "dep:openbitfun-agent-runtime",
     "dep:openbitfun-legacy-migration",
     "dep:openbitfun-product-domains",
+    "dep:openbitfun-services-integrations",
+    "openbitfun-agent-runtime/definition-contracts",
     "openbitfun-product-domains/legacy-migration",
+    "openbitfun-product-domains/miniapp",
+    "openbitfun-services-integrations/miniapp-storage",
 ]
 announcement = ["openbitfun-services-integrations/announcement"]
 file-watch = ["openbitfun-services-integrations/file-watch"]

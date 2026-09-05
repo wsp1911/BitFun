@@ -194,6 +194,7 @@ test('Agent Runtime leaf capabilities have one managed feature and source contra
   assert.deepEqual(Object.keys(rule.featureProfiles).sort(), [
     'agent-runtime',
     'default',
+    'definition-contracts',
     'native-hook-runtime',
     'native-hook-settings',
   ]);

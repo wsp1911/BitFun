@@ -171,7 +171,15 @@ mcp = [
     "url",
     "process-tree",
 ]
+miniapp-storage = [
+    "dep:openbitfun-product-domains",
+    "openbitfun-product-domains/miniapp",
+    "tokio/fs",
+    "tokio/time",
+    "uuid",
+]
 miniapp-runtime = [
+    "miniapp-storage",
     "base64",
     "openbitfun-product-domains/miniapp",
     "openbitfun-services-core/process-runtime",

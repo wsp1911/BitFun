@@ -5,6 +5,7 @@
 //! domain model without moving those owners into the service layer.
 
 mod common;
+mod extensions;
 mod settings;
 
 use openbitfun_legacy_migration::{
@@ -23,6 +24,15 @@ pub fn adapters_for_groups(selection: &MigrationSelection) -> Vec<Box<dyn Legacy
     }
     if selected.contains(&MigrationDomainId::Credentials) {
         adapters.push(Box::new(settings::CredentialsAdapter));
+    }
+    if selected.contains(&MigrationDomainId::Skills) {
+        adapters.push(Box::new(extensions::SkillsAdapter));
+    }
+    if selected.contains(&MigrationDomainId::Miniapps) {
+        adapters.push(Box::new(extensions::MiniappsAdapter));
+    }
+    if selected.contains(&MigrationDomainId::Agents) {
+        adapters.push(Box::new(extensions::AgentsAdapter));
     }
     if selected.contains(&MigrationDomainId::CrossReferenceRepair) {
         adapters.push(Box::new(CrossReferenceAdapter));

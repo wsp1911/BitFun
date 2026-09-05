@@ -63,7 +63,7 @@ pub mod mcp;
 #[cfg(feature = "models-dev")]
 pub mod models_dev;
 
-#[cfg(feature = "miniapp-runtime")]
+#[cfg(any(feature = "miniapp-runtime", feature = "miniapp-storage"))]
 pub mod miniapp;
 
 #[cfg(feature = "miniapp-market")]
