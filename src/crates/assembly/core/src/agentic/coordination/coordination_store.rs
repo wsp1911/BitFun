@@ -1151,9 +1151,6 @@ fn initialize_schema(connection: &Connection) -> OpenBitFunResult<()> {
             "Agent coordination database schema {version} is newer than supported schema {SCHEMA_VERSION}"
         )));
     }
-    if version == SCHEMA_VERSION {
-        return Ok(());
-    }
     if version == 0 {
         connection
             .execute_batch(
@@ -1236,7 +1233,57 @@ PRAGMA user_version = 2;
             )
             .map_err(db_error)?;
     }
+    ensure_v2_additive_columns(connection)?;
     Ok(())
+}
+
+/// Schema v2 shipped after the background-task delivery columns were added to
+/// schema v1. A retired build could nevertheless leave a database stamped as
+/// v2 without those additive columns. Keep the repair keyed to the physical
+/// shape so reopening such a database is safe and idempotent.
+fn ensure_v2_additive_columns(connection: &Connection) -> OpenBitFunResult<()> {
+    for (column, declaration) in [
+        ("delivered_at_ms", "INTEGER"),
+        ("delivered_parent_dialog_turn_id", "TEXT"),
+    ] {
+        if !table_has_column(connection, "background_tasks", column)? {
+            connection
+                .execute_batch(&format!(
+                    "ALTER TABLE background_tasks ADD COLUMN {column} {declaration};"
+                ))
+                .map_err(db_error)?;
+        }
+    }
+    connection
+        .execute_batch(
+            r#"
+CREATE INDEX IF NOT EXISTS idx_background_tasks_wait
+    ON background_tasks(parent_session_id, delivered_at_ms, status, task_pk);
+CREATE INDEX IF NOT EXISTS idx_background_tasks_parent_turn
+    ON background_tasks(parent_session_id, parent_dialog_turn_id);
+            "#,
+        )
+        .map_err(db_error)?;
+    Ok(())
+}
+
+fn table_has_column(
+    connection: &Connection,
+    table: &str,
+    expected_column: &str,
+) -> OpenBitFunResult<bool> {
+    let mut statement = connection
+        .prepare(&format!("PRAGMA table_info({table})"))
+        .map_err(db_error)?;
+    let columns = statement
+        .query_map([], |row| row.get::<_, String>(1))
+        .map_err(db_error)?;
+    for column in columns {
+        if column.map_err(db_error)? == expected_column {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 fn db_error(error: rusqlite::Error) -> OpenBitFunError {
@@ -1254,8 +1301,20 @@ fn unix_time_ms() -> u64 {
 mod tests {
     use super::*;
 
+    fn test_tempdir() -> tempfile::TempDir {
+        if let Some(root) = std::env::var_os("OPENBITFUN_TEST_TMPDIR") {
+            let root = PathBuf::from(root);
+            std::fs::create_dir_all(&root).expect("create coordination test temp root");
+            return tempfile::Builder::new()
+                .prefix("coordination-store-")
+                .tempdir_in(root)
+                .expect("coordination store temp directory");
+        }
+        tempfile::tempdir().expect("coordination store temp directory")
+    }
+
     fn test_store() -> (tempfile::TempDir, CoordinationStore) {
-        let root = tempfile::tempdir().expect("coordination store temp directory");
+        let root = test_tempdir();
         let store = CoordinationStore::new(root.path().join("coordination.sqlite"));
         (root, store)
     }
@@ -1274,6 +1333,92 @@ mod tests {
             parent_tool_call_id: format!("tool-{parent_dialog_turn_id}"),
             child_dialog_turn_id: format!("turn-{child_session_id}-{parent_dialog_turn_id}"),
         }
+    }
+
+    #[tokio::test]
+    async fn schema_v2_repairs_missing_delivery_columns_idempotently() {
+        let root = test_tempdir();
+        let db_path = root.path().join("coordination.sqlite");
+        let connection = Connection::open(&db_path).expect("open historical database");
+        connection
+            .execute_batch(
+                r#"
+CREATE TABLE coordination_sessions (
+    parent_session_id TEXT PRIMARY KEY,
+    next_auto_agent_seq INTEGER NOT NULL DEFAULT 1,
+    updated_at_ms INTEGER NOT NULL
+);
+CREATE TABLE agents (
+    agent_pk INTEGER PRIMARY KEY AUTOINCREMENT,
+    parent_session_id TEXT NOT NULL,
+    agent_id TEXT NOT NULL,
+    child_session_id TEXT,
+    next_bg_seq INTEGER NOT NULL DEFAULT 1,
+    state TEXT NOT NULL,
+    created_at_ms INTEGER NOT NULL
+);
+CREATE TABLE background_tasks (
+    task_pk INTEGER PRIMARY KEY AUTOINCREMENT,
+    parent_session_id TEXT NOT NULL,
+    agent_pk INTEGER NOT NULL,
+    bg_task_id TEXT NOT NULL,
+    bg_ordinal INTEGER NOT NULL,
+    parent_dialog_turn_id TEXT NOT NULL,
+    parent_tool_call_id TEXT NOT NULL,
+    child_dialog_turn_id TEXT NOT NULL,
+    status TEXT NOT NULL,
+    error_code TEXT,
+    error_message TEXT,
+    execution_owner_token TEXT NOT NULL,
+    created_at_ms INTEGER NOT NULL,
+    terminal_at_ms INTEGER
+);
+CREATE TABLE swarm_trees (
+    root_session_id TEXT PRIMARY KEY,
+    created_at_ms INTEGER NOT NULL
+);
+CREATE TABLE swarm_nodes (
+    session_id TEXT PRIMARY KEY,
+    root_session_id TEXT NOT NULL,
+    parent_session_id TEXT,
+    agent_type TEXT NOT NULL,
+    depth INTEGER NOT NULL,
+    created_at_ms INTEGER NOT NULL
+);
+INSERT INTO coordination_sessions VALUES ('parent', 2, 1);
+INSERT INTO agents VALUES (1, 'parent', 'helper', 'child', 2, 'historical', 1);
+INSERT INTO background_tasks VALUES (
+    1, 'parent', 1, 'helper_bg1', 1, 'parent-turn', 'tool-call',
+    'child-turn', 'completed', NULL, NULL, 'historical-owner', 1, 2
+);
+PRAGMA user_version = 2;
+                "#,
+            )
+            .expect("seed historical schema v2");
+        drop(connection);
+
+        let store = CoordinationStore::new(db_path.clone());
+        let candidates = store
+            .wait_candidates("parent", &[])
+            .await
+            .expect("repaired database should support current reads");
+        assert_eq!(candidates.len(), 1);
+        assert_eq!(candidates[0].bg_task_id, "helper_bg1");
+        assert!(candidates[0].delivered_at_ms.is_none());
+        drop(store);
+
+        let connection = Connection::open(&db_path).expect("reopen repaired database");
+        initialize_schema(&connection).expect("repeated repair should be idempotent");
+        assert!(
+            table_has_column(&connection, "background_tasks", "delivered_at_ms")
+                .expect("inspect delivered_at_ms")
+        );
+        assert!(table_has_column(
+            &connection,
+            "background_tasks",
+            "delivered_parent_dialog_turn_id"
+        )
+        .expect("inspect delivered_parent_dialog_turn_id"));
     }
 
     #[tokio::test]
