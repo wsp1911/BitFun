@@ -434,6 +434,7 @@ export function runManifestParserSelfTest({
       ],
     ],
     [servicesCoreManifest, 'product-identity', ['dep:openbitfun-core-types']],
+    [servicesCoreManifest, 'memory-store', ['dep:rusqlite']],
     [
       servicesCoreManifest,
       'local-storage',
@@ -1160,7 +1161,7 @@ export function runManifestParserSelfTest({
       'regex',
       ['diagnostics', 'filesystem', 'local-storage', 'markdown', 'workspace-instructions'],
     ],
-    ['rusqlite', ['permission']],
+    ['rusqlite', ['memory-store', 'permission']],
     ['serde_yaml', ['markdown', 'workspace-instructions']],
     ['similar', ['diff', 'local-storage']],
     [

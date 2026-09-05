@@ -7,6 +7,7 @@
 mod agent_coordination;
 mod common;
 mod extensions;
+mod memory;
 mod settings;
 mod workspace_sessions;
 
@@ -41,6 +42,12 @@ pub fn adapters_for_groups(selection: &MigrationSelection) -> Vec<Box<dyn Legacy
     }
     if selected.contains(&MigrationDomainId::AgentCoordination) {
         adapters.push(Box::new(agent_coordination::AgentCoordinationAdapter));
+    }
+    if selected.contains(&MigrationDomainId::StructuredMemory) {
+        adapters.push(Box::new(memory::StructuredMemoryAdapter));
+    }
+    if selected.contains(&MigrationDomainId::FileMemory) {
+        adapters.push(Box::new(memory::FileMemoryAdapter));
     }
     if selected.contains(&MigrationDomainId::CrossReferenceRepair) {
         adapters.push(Box::new(CrossReferenceAdapter));

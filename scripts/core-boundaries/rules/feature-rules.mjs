@@ -70,7 +70,7 @@ export const optionalDependencyFeatureOwnerRules = [
           'workspace-instructions',
         ],
       },
-      { depName: 'rusqlite', ownerFeatures: ['permission', 'session-search'] },
+      { depName: 'rusqlite', ownerFeatures: ['memory-store', 'permission', 'session-search'] },
       { depName: 'rustls', ownerFeatures: ['tls-provider'] },
       { depName: 'serde_yaml', ownerFeatures: ['markdown', 'workspace-instructions'] },
       { depName: 'similar', ownerFeatures: ['diff', 'local-storage'] },
@@ -881,6 +881,7 @@ export const coreClosedFeatureProfileRules = [
       'dep:tool-runtime',
       // Complete ExecCommand constraint syntax facts live in the tool owner.
       'tool-runtime/shell-analysis',
+      'openbitfun-services-core/memory-store',
       'openbitfun-services-core/permission',
       'openbitfun-services-core/runtime-ownership',
       'openbitfun-services-core/session-git',
@@ -1489,6 +1490,13 @@ export const coreClosedFeatureProfileRules = [
     ],
     exact: true,
     reason: 'services-core local-storage must own durable JSON, session, usage, and cleanup primitives',
+  },
+  {
+    manifestPath: 'src/crates/services/services-core/Cargo.toml',
+    featureName: 'memory-store',
+    requiredFeatureRefs: ['dep:rusqlite'],
+    exact: true,
+    reason: 'services-core memory-store must own only the durable Memory SQLite format',
   },
   {
     manifestPath: 'src/crates/services/services-core/Cargo.toml',
