@@ -6079,6 +6079,7 @@ dependencies = [
  "dirs 6.0.0",
  "fs2",
  "hex",
+ "libc",
  "openbitfun-product-domains",
  "openbitfun-services-core",
  "rusqlite",

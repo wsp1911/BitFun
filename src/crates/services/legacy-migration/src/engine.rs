@@ -177,6 +177,22 @@ impl MigrationEngine {
         selection: MigrationSelection,
         cancellation: &CancellationToken,
     ) -> LegacyMigrationResult<MigrationPlan> {
+        self.plan_with_run_id(
+            source,
+            selection,
+            uuid::Uuid::new_v4().to_string(),
+            cancellation,
+        )
+    }
+
+    /// Build an immutable plan for a run id authenticated by the handoff file.
+    pub fn plan_with_run_id(
+        &self,
+        source: &LegacySourceDescriptor,
+        selection: MigrationSelection,
+        run_id: impl Into<String>,
+        cancellation: &CancellationToken,
+    ) -> LegacyMigrationResult<MigrationPlan> {
         if !source.readable || !source.supported {
             return Err(LegacyMigrationError::UnsupportedSource(
                 "legacy source is not readable and supported".to_string(),
@@ -215,9 +231,15 @@ impl MigrationEngine {
             conflicts.extend(scan.conflicts);
         }
 
+        let run_id = run_id.into();
+        if uuid::Uuid::parse_str(&run_id).is_err() {
+            return Err(LegacyMigrationError::InvalidRequest(
+                "migration run id must be a UUID".to_string(),
+            ));
+        }
         let mut plan = MigrationPlan {
             format_version: CURRENT_MIGRATION_FORMAT_VERSION,
-            run_id: uuid::Uuid::new_v4().to_string(),
+            run_id,
             source_fingerprint: source.source_fingerprint.clone(),
             selection,
             steps,

@@ -2,6 +2,7 @@
 
 mod engine;
 mod error;
+mod handoff;
 mod paths;
 mod probe;
 mod sqlite;
@@ -12,6 +13,11 @@ pub use engine::{
     LegacyDomainAdapter, MigrationEngine, NoCrashInjection,
 };
 pub use error::{LegacyMigrationError, LegacyMigrationResult};
+pub use handoff::{
+    blocking_writer_processes, launch_trusted_executable, ExecutableTrustVerifier,
+    HandoffDisposition, HandoffStore, PlatformExecutableTrustVerifier, TrustedExecutable,
+    TrustedInstallationResolver, ValidatedHandoff, WriterProcess,
+};
 pub use paths::{MigrationRoots, LEGACY_PRODUCT_ID};
 pub use probe::{probe_legacy_source, ProbeLimits};
 pub use sqlite::{snapshot_sqlite_read_only, validate_sqlite};
