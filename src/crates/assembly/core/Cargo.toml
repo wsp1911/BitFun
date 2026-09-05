@@ -85,6 +85,9 @@ openbitfun-services-core = { path = "../../services/services-core", features = [
 # Integration service owner crate
 openbitfun-services-integrations = { path = "../../services/services-integrations", optional = true }
 
+# Offline legacy-data migration engine. Product-owned adapters are assembled in Core.
+openbitfun-legacy-migration = { path = "../../services/legacy-migration", optional = true }
+
 # Product domain owner crate
 openbitfun-product-domains = { path = "../../contracts/product-domains", optional = true }
 
@@ -187,6 +190,7 @@ product-full = [
     "product-capabilities",
     "runtime-services",
     "tool-packs",
+    "legacy-migration",
 ]
 # Core compatibility facade and concrete product Agent Runtime assembly. This
 # owns the existing agent/session/tool lifecycle, not app presentation or
@@ -409,6 +413,11 @@ canvas-runtime = [
     "openbitfun-services-integrations/canvas-runtime",
 ]
 runtime-services = ["dep:openbitfun-runtime-services"]
+legacy-migration = [
+    "dep:openbitfun-legacy-migration",
+    "dep:openbitfun-product-domains",
+    "openbitfun-product-domains/legacy-migration",
+]
 announcement = ["openbitfun-services-integrations/announcement"]
 file-watch = ["openbitfun-services-integrations/file-watch"]
 git = ["openbitfun-services-integrations/git"]

@@ -477,6 +477,20 @@ impl MigrationEngine {
         }
 
         inject(crash_injector, CrashPoint::BeforeFinalize)?;
+        report.requires_reauthentication = report
+            .domain_results
+            .iter()
+            .flat_map(|result| result.requires_reauthentication.iter().cloned())
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .collect();
+        report.requires_relocation = report
+            .domain_results
+            .iter()
+            .flat_map(|result| result.requires_relocation.iter().cloned())
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .collect();
         report.finished_at_ms = Some(now_ms());
         let has_warnings = report.diagnostics.iter().any(|diagnostic| {
             matches!(
