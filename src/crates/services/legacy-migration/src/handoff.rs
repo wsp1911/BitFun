@@ -582,11 +582,23 @@ const WRITER_EXECUTABLE_NAMES: &[&str] = &[
 pub fn blocking_writer_processes(
     caller_process_id: u32,
 ) -> LegacyMigrationResult<Vec<WriterProcess>> {
+    blocking_writer_processes_for_product(caller_process_id, &[])
+}
+
+/// Find legacy and current writers, including product-defined sibling names.
+///
+/// The additional names come from the build-time product projection rather
+/// than the handoff request, so a request cannot broaden process matching.
+pub fn blocking_writer_processes_for_product(
+    caller_process_id: u32,
+    product_writer_binary_names: &[&str],
+) -> LegacyMigrationResult<Vec<WriterProcess>> {
     let entries = platform_process_entries()?;
     Ok(classify_writer_processes(
         &entries,
         caller_process_id,
         std::process::id(),
+        product_writer_binary_names,
     ))
 }
 
@@ -594,6 +606,7 @@ fn classify_writer_processes(
     entries: &[ProcessEntry],
     caller_process_id: u32,
     current_process_id: u32,
+    product_writer_binary_names: &[&str],
 ) -> Vec<WriterProcess> {
     let mut blockers = entries
         .iter()
@@ -602,7 +615,8 @@ fn classify_writer_processes(
             let is_handoff_caller = entry.process_id == caller_process_id;
             let known_writer = WRITER_EXECUTABLE_NAMES
                 .iter()
-                .any(|name| entry.executable_name.eq_ignore_ascii_case(name));
+                .chain(product_writer_binary_names.iter())
+                .any(|name| process_name_matches_binary(&entry.executable_name, name));
             (is_handoff_caller || known_writer).then(|| WriterProcess {
                 process_id: entry.process_id,
                 executable_name: entry.executable_name.clone(),
@@ -613,6 +627,11 @@ fn classify_writer_processes(
     blockers.sort_by_key(|process| process.process_id);
     blockers.dedup_by_key(|process| process.process_id);
     blockers
+}
+
+fn process_name_matches_binary(process_name: &str, binary_name: &str) -> bool {
+    process_name.eq_ignore_ascii_case(binary_name)
+        || process_name.eq_ignore_ascii_case(&platform_binary_filename(binary_name))
 }
 
 #[cfg(windows)]
@@ -1027,7 +1046,7 @@ mod tests {
                 executable_name: "openbitfun-data-migrator.exe".to_string(),
             },
         ];
-        let blockers = classify_writer_processes(&processes, 10, 13);
+        let blockers = classify_writer_processes(&processes, 10, 13, &[]);
         assert_eq!(
             blockers
                 .iter()
@@ -1036,6 +1055,20 @@ mod tests {
             vec![10, 11]
         );
         assert!(blockers[0].is_handoff_caller);
+    }
+
+    #[test]
+    fn process_classifier_includes_product_projected_writer_names() {
+        let processes = vec![ProcessEntry {
+            process_id: 21,
+            executable_name: platform_binary_filename("acme-desktop"),
+        }];
+
+        let blockers = classify_writer_processes(&processes, 99, 100, &["acme-desktop"]);
+
+        assert_eq!(blockers.len(), 1);
+        assert_eq!(blockers[0].process_id, 21);
+        assert!(!blockers[0].is_handoff_caller);
     }
 
     struct AllowAll;

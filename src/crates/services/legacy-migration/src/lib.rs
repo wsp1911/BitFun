@@ -14,9 +14,9 @@ pub use engine::{
 };
 pub use error::{LegacyMigrationError, LegacyMigrationResult};
 pub use handoff::{
-    blocking_writer_processes, launch_trusted_executable, ExecutableTrustVerifier,
-    HandoffDisposition, HandoffStore, PlatformExecutableTrustVerifier, TrustedExecutable,
-    TrustedInstallationResolver, ValidatedHandoff, WriterProcess,
+    blocking_writer_processes, blocking_writer_processes_for_product, launch_trusted_executable,
+    ExecutableTrustVerifier, HandoffDisposition, HandoffStore, PlatformExecutableTrustVerifier,
+    TrustedExecutable, TrustedInstallationResolver, ValidatedHandoff, WriterProcess,
 };
 pub use paths::{MigrationRoots, LEGACY_PRODUCT_ID};
 pub use probe::{probe_legacy_source, ProbeLimits};

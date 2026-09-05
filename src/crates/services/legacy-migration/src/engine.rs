@@ -396,6 +396,15 @@ impl MigrationEngine {
                     let _ = record_cancelled(&layout, &mut report, &mut journal_sequence);
                     error
                 })?;
+                emit_progress(
+                    &mut progress,
+                    plan,
+                    step,
+                    MigrationPhase::ValidateStage,
+                    index,
+                    true,
+                    "validating_staged_domain",
+                );
                 transition(
                     &layout,
                     &mut report,
@@ -435,6 +444,15 @@ impl MigrationEngine {
                     let _ = record_cancelled(&layout, &mut report, &mut journal_sequence);
                     error
                 })?;
+                emit_progress(
+                    &mut progress,
+                    plan,
+                    step,
+                    MigrationPhase::Commit,
+                    index,
+                    false,
+                    "committing_domain",
+                );
                 transition(
                     &layout,
                     &mut report,
@@ -473,6 +491,15 @@ impl MigrationEngine {
             }
 
             if report.domain_results[result_index].state == MigrationDomainState::Committed {
+                emit_progress(
+                    &mut progress,
+                    plan,
+                    step,
+                    MigrationPhase::ValidateCommit,
+                    index,
+                    false,
+                    "validating_committed_domain",
+                );
                 transition(
                     &layout,
                     &mut report,
@@ -542,6 +569,15 @@ impl MigrationEngine {
                     crash_injector,
                     CrashPoint::AfterCommitValidated(step.domain),
                 )?;
+                emit_progress(
+                    &mut progress,
+                    plan,
+                    step,
+                    MigrationPhase::ValidateCommit,
+                    index + 1,
+                    true,
+                    "domain_verified",
+                );
             }
         }
 

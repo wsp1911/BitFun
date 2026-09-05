@@ -21,9 +21,12 @@ pub enum MigrationGroupId {
     RemoteConnectionsAndDevices,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[derive(
+    Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum MigrationDomainId {
+    #[default]
     Settings,
     Credentials,
     Skills,
@@ -471,10 +474,4 @@ pub struct MigrationJournalEvent {
     pub domain: Option<MigrationDomainId>,
     pub domain_state: Option<MigrationDomainState>,
     pub code: String,
-}
-
-impl Default for MigrationDomainId {
-    fn default() -> Self {
-        Self::Settings
-    }
 }

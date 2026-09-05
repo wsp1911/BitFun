@@ -5944,6 +5944,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "openbitfun-data-migrator"
+version = "1.0.0"
+dependencies = [
+ "openbitfun-core",
+ "openbitfun-core-types",
+ "openbitfun-legacy-migration",
+ "openbitfun-product-capabilities",
+ "openbitfun-product-domains",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-build",
+ "tempfile",
+ "uuid",
+]
+
+[[package]]
 name = "openbitfun-desktop"
 version = "1.0.0"
 dependencies = [
