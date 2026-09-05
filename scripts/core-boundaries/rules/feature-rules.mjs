@@ -239,7 +239,7 @@ export const optionalDependencyFeatureOwnerRules = [
       { depName: 'md5', ownerFeatures: ['agent-runtime'] },
       { depName: 'reqwest', ownerFeatures: ['mcp-runtime', 'tools-miniapp'] },
       { depName: 'regex', ownerFeatures: ['agent-runtime'] },
-      { depName: 'rusqlite', ownerFeatures: ['agent-runtime'] },
+      { depName: 'rusqlite', ownerFeatures: ['agent-runtime', 'legacy-migration'] },
       { depName: 'semver', ownerFeatures: ['tools-miniapp'] },
       { depName: 'serde_yaml', ownerFeatures: ['workspace-runtime'] },
       { depName: 'similar', ownerFeatures: ['agent-runtime'] },

@@ -418,10 +418,14 @@ legacy-migration = [
     "dep:openbitfun-legacy-migration",
     "dep:openbitfun-product-domains",
     "dep:openbitfun-services-integrations",
+    "dep:rusqlite",
     "openbitfun-agent-runtime/definition-contracts",
     "openbitfun-product-domains/legacy-migration",
     "openbitfun-product-domains/miniapp",
+    "openbitfun-services-core/local-storage",
+    "openbitfun-services-core/workspace-identity",
     "openbitfun-services-integrations/miniapp-storage",
+    "tokio/rt",
 ]
 announcement = ["openbitfun-services-integrations/announcement"]
 file-watch = ["openbitfun-services-integrations/file-watch"]

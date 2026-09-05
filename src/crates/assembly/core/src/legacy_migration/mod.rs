@@ -4,16 +4,18 @@
 //! this module binds each legacy reader and converter to the current product
 //! domain model without moving those owners into the service layer.
 
+mod agent_coordination;
 mod common;
 mod extensions;
 mod settings;
+mod workspace_sessions;
 
 use openbitfun_legacy_migration::{
     DomainContext, DomainScan, LegacyDomainAdapter, LegacyMigrationResult, MigrationRoots,
 };
 use openbitfun_product_domains::legacy_migration::{
     FindingSeverity, MigrationDomainId, MigrationDomainResult, MigrationDomainState,
-    MigrationSelection, ScanFinding,
+    MigrationGroupId, MigrationSelection, ScanFinding,
 };
 
 pub fn adapters_for_groups(selection: &MigrationSelection) -> Vec<Box<dyn LegacyDomainAdapter>> {
@@ -34,6 +36,12 @@ pub fn adapters_for_groups(selection: &MigrationSelection) -> Vec<Box<dyn Legacy
     if selected.contains(&MigrationDomainId::Agents) {
         adapters.push(Box::new(extensions::AgentsAdapter));
     }
+    if selected.contains(&MigrationDomainId::WorkspaceSessions) {
+        adapters.push(Box::new(workspace_sessions::WorkspaceSessionsAdapter));
+    }
+    if selected.contains(&MigrationDomainId::AgentCoordination) {
+        adapters.push(Box::new(agent_coordination::AgentCoordinationAdapter));
+    }
     if selected.contains(&MigrationDomainId::CrossReferenceRepair) {
         adapters.push(Box::new(CrossReferenceAdapter));
     }
@@ -51,10 +59,10 @@ impl LegacyDomainAdapter for CrossReferenceAdapter {
         Ok(DomainScan {
             finding: ScanFinding {
                 domain: self.domain(),
-                code: "cross_reference_validation_pending".to_string(),
+                code: "cross_reference_validation_enabled".to_string(),
                 severity: FindingSeverity::Info,
                 migratable: true,
-                detail: "Selected owner adapters do not yet expose cross-domain references."
+                detail: "Selected owner adapters will be checked after their atomic commits."
                     .to_string(),
                 ..ScanFinding::default()
             },
@@ -72,15 +80,27 @@ impl LegacyDomainAdapter for CrossReferenceAdapter {
         })
     }
 
-    fn validate_stage(&self, _context: &DomainContext<'_>) -> LegacyMigrationResult<()> {
-        Ok(())
+    fn validate_stage(&self, context: &DomainContext<'_>) -> LegacyMigrationResult<()> {
+        validate_selected_cross_references(context)
     }
 
     fn commit(&self, _context: &DomainContext<'_>) -> LegacyMigrationResult<()> {
         Ok(())
     }
 
-    fn validate_commit(&self, _context: &DomainContext<'_>) -> LegacyMigrationResult<()> {
-        Ok(())
+    fn validate_commit(&self, context: &DomainContext<'_>) -> LegacyMigrationResult<()> {
+        validate_selected_cross_references(context)
     }
+}
+
+fn validate_selected_cross_references(context: &DomainContext<'_>) -> LegacyMigrationResult<()> {
+    if context
+        .plan
+        .selection
+        .groups
+        .contains(&MigrationGroupId::WorkspacesSessionsAndTasks)
+    {
+        agent_coordination::validate_committed_coordination_cross_references(context)?;
+    }
+    Ok(())
 }
