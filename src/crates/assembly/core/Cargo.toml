@@ -427,6 +427,7 @@ legacy-migration = [
     "openbitfun-services-core/memory-store",
     "openbitfun-services-core/workspace-identity",
     "openbitfun-services-integrations/miniapp-storage",
+    "openbitfun-services-integrations/remote-persistence",
     "tokio/rt",
 ]
 announcement = ["openbitfun-services-integrations/announcement"]

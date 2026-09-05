@@ -1260,6 +1260,14 @@ export function runManifestParserSelfTest({
       throw new Error(`services-integrations plugin-source must own optional dependency ${dep}`);
     }
   }
+  for (const dep of ['aes-gcm', 'anyhow', 'base64', 'hostname', 'openbitfun-services-core', 'rand', 'sha2', 'windows']) {
+    const owner = servicesOptionalOwnerRule?.dependencies.find(
+      (dependency) => dependency.depName === dep,
+    );
+    if (!owner?.ownerFeatures.includes('remote-persistence')) {
+      throw new Error(`services-integrations remote-persistence must own optional dependency ${dep}`);
+    }
+  }
   for (const dep of ['openbitfun-product-domains', 'image']) {
     const owner = servicesOptionalOwnerRule?.dependencies.find(
       (dependency) => dependency.depName === dep,

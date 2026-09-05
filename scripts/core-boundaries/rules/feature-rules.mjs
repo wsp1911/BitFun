@@ -261,15 +261,15 @@ export const optionalDependencyFeatureOwnerRules = [
     reviewedAggregateFeatures: ['speech-realtime'],
     dependencies: [
       { depName: 'aes', ownerFeatures: ['remote-connect'] },
-      { depName: 'aes-gcm', ownerFeatures: ['mcp', 'remote-connect', 'remote-ssh-concrete'] },
-      { depName: 'anyhow', ownerFeatures: ['browser-control', 'deep-research', 'mcp', 'remote-connect', 'remote-ssh', 'remote-ssh-concrete'] },
+      { depName: 'aes-gcm', ownerFeatures: ['mcp', 'remote-connect', 'remote-persistence', 'remote-ssh-concrete'] },
+      { depName: 'anyhow', ownerFeatures: ['browser-control', 'deep-research', 'mcp', 'remote-connect', 'remote-persistence', 'remote-ssh', 'remote-ssh-concrete'] },
       {
         depName: 'async-trait',
         ownerFeatures: ['deep-research', 'git', 'mcp', 'remote-connect', 'remote-ssh', 'remote-ssh-concrete', 'review-platform', 'script-tool-runtime', 'speech', 'web-tools', 'workspace-search'],
       },
       {
         depName: 'base64',
-        ownerFeatures: ['mcp', 'miniapp-runtime', 'remote-connect', 'remote-ssh-concrete', 'speech'],
+        ownerFeatures: ['mcp', 'miniapp-runtime', 'remote-connect', 'remote-persistence', 'remote-ssh-concrete', 'speech'],
       },
       { depName: 'openbitfun-agent-runtime', ownerFeatures: ['hook-import'] },
       { depName: 'openbitfun-agent-workflows', ownerFeatures: ['deep-research'] },
@@ -292,6 +292,7 @@ export const optionalDependencyFeatureOwnerRules = [
           'models-dev',
           'process-tree',
           'remote-connect',
+          'remote-persistence',
           'remote-ssh',
           'remote-ssh-concrete',
           'review-platform',
@@ -309,7 +310,7 @@ export const optionalDependencyFeatureOwnerRules = [
       { depName: 'futures-util', ownerFeatures: ['speech', 'web-tools'] },
       { depName: 'git2', ownerFeatures: ['git'] },
       { depName: 'hex', ownerFeatures: ['hook-import', 'mcp', 'miniapp-market', 'plugin-source', 'remote-connect'] },
-      { depName: 'hostname', ownerFeatures: ['remote-connect'] },
+      { depName: 'hostname', ownerFeatures: ['remote-connect', 'remote-persistence'] },
       { depName: 'image', ownerFeatures: ['miniapp-market', 'remote-connect'] },
       { depName: 'local-ip-address', ownerFeatures: ['remote-connect'] },
       { depName: 'libc', ownerFeatures: ['plugin-source'] },
@@ -318,7 +319,7 @@ export const optionalDependencyFeatureOwnerRules = [
       { depName: 'notify', ownerFeatures: ['file-watch'] },
       { depName: 'oxc', ownerFeatures: ['canvas-runtime'] },
       { depName: 'qrcode', ownerFeatures: ['remote-connect'] },
-      { depName: 'rand', ownerFeatures: ['mcp', 'remote-connect', 'remote-ssh-concrete'] },
+      { depName: 'rand', ownerFeatures: ['mcp', 'remote-connect', 'remote-persistence', 'remote-ssh-concrete'] },
       // remote-ssh-concrete: one-click relay deploy fetches the signed release
       // checksum over HTTPS and verifies it on this device, because the target
       // server has no minisign and no trust root of its own.
@@ -330,7 +331,7 @@ export const optionalDependencyFeatureOwnerRules = [
       { depName: 'rustls', ownerFeatures: ['remote-connect'] },
       { depName: 'rustls-native-certs', ownerFeatures: ['remote-connect'] },
       { depName: 'schannel', ownerFeatures: ['remote-connect'] },
-      { depName: 'sha2', ownerFeatures: ['canvas-runtime', 'hook-import', 'mcp', 'miniapp-market', 'models-dev', 'plugin-source', 'remote-connect', 'remote-ssh', 'review-platform', 'speech'] },
+      { depName: 'sha2', ownerFeatures: ['canvas-runtime', 'hook-import', 'mcp', 'miniapp-market', 'models-dev', 'plugin-source', 'remote-connect', 'remote-persistence', 'remote-ssh', 'review-platform', 'speech'] },
       { depName: 'sherpa-onnx', ownerFeatures: ['speech'] },
       { depName: 'shellexpand', ownerFeatures: ['remote-ssh-concrete'] },
       { depName: 'sse-stream', ownerFeatures: ['mcp'] },
@@ -343,7 +344,7 @@ export const optionalDependencyFeatureOwnerRules = [
       { depName: 'urlencoding', ownerFeatures: ['canvas-runtime', 'miniapp-market', 'remote-connect', 'review-platform'] },
       { depName: 'uuid', ownerFeatures: ['canvas-runtime', 'hook-import', 'miniapp-runtime', 'miniapp-storage', 'plugin-source', 'remote-connect', 'remote-ssh-concrete', 'speech'] },
       { depName: 'which', ownerFeatures: ['miniapp-runtime', 'remote-connect', 'script-tool-runtime', 'workspace-search'] },
-      { depName: 'windows', ownerFeatures: ['models-dev', 'plugin-source', 'review-platform'] },
+      { depName: 'windows', ownerFeatures: ['models-dev', 'plugin-source', 'remote-connect', 'remote-persistence', 'remote-ssh-concrete', 'review-platform'] },
       { depName: 'x25519-dalek', ownerFeatures: ['remote-connect'] },
     ],
   },
