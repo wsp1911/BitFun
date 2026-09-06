@@ -30,6 +30,8 @@ fn persisted_onboarding_shape_accepts_old_payloads() {
     assert_eq!(state.choice, MigrationPromptChoice::RemindLater);
     assert_eq!(state.format_version, 0);
     assert!(state.run_id.is_none());
+    assert!(state.last_scanned_at_ms.is_none());
+    assert!(state.last_report_run_id.is_none());
 }
 
 #[test]

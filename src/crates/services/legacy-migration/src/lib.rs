@@ -3,6 +3,7 @@
 mod engine;
 mod error;
 mod handoff;
+mod onboarding;
 mod paths;
 mod probe;
 mod sqlite;
@@ -18,6 +19,7 @@ pub use handoff::{
     ExecutableTrustVerifier, HandoffDisposition, HandoffStore, PlatformExecutableTrustVerifier,
     TrustedExecutable, TrustedInstallationResolver, ValidatedHandoff, WriterProcess,
 };
+pub use onboarding::MigrationOnboardingStore;
 pub use paths::{MigrationRoots, LEGACY_PRODUCT_ID};
 pub use probe::{probe_legacy_source, ProbeLimits};
 pub use sqlite::{snapshot_sqlite_read_only, validate_sqlite};

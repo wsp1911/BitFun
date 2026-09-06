@@ -349,9 +349,13 @@ pub struct MigrationOnboardingState {
     pub format_version: u32,
     pub source_fingerprint: String,
     pub detected_at_ms: Option<i64>,
+    /// Most recent explicit read-only scan started from a product entry point.
+    pub last_scanned_at_ms: Option<i64>,
     pub choice: MigrationPromptChoice,
     pub last_prompted_version: Option<String>,
     pub run_id: Option<String>,
+    /// Most recent run whose report can be shown after a later handoff starts.
+    pub last_report_run_id: Option<String>,
     pub handled_run_id: Option<String>,
 }
 

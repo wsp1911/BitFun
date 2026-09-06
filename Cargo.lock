@@ -6003,6 +6003,7 @@ dependencies = [
  "openbitfun-core",
  "openbitfun-core-types",
  "openbitfun-events",
+ "openbitfun-legacy-migration",
  "openbitfun-product-domains",
  "openbitfun-relay-service",
  "openbitfun-runtime-ports",

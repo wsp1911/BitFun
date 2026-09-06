@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "digest": "fnv1a64:90117ec8e98d6d48",
+  "digest": "fnv1a64:d0d1a8b83d2812c0",
   "retiredCommandPrefixes": [
     {
       "prefix": "lsp_",
@@ -2584,6 +2584,30 @@
       }
     },
     {
+      "id": "get_legacy_migration_report",
+      "surface": "tauri_command",
+      "remoteWorkspace": "LocalOnly",
+      "peer": {
+        "kind": "controller_local"
+      },
+      "cliPeer": {
+        "kind": "unsupported",
+        "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
+      }
+    },
+    {
+      "id": "get_legacy_migration_status",
+      "surface": "tauri_command",
+      "remoteWorkspace": "LocalOnly",
+      "peer": {
+        "kind": "controller_local"
+      },
+      "cliPeer": {
+        "kind": "unsupported",
+        "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
+      }
+    },
+    {
       "id": "get_mcp_prompt",
       "surface": "tauri_command",
       "remoteWorkspace": "LegacyUnaudited",
@@ -5138,6 +5162,18 @@
       }
     },
     {
+      "id": "prepare_legacy_migration",
+      "surface": "tauri_command",
+      "remoteWorkspace": "LocalOnly",
+      "peer": {
+        "kind": "controller_local"
+      },
+      "cliPeer": {
+        "kind": "unsupported",
+        "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
+      }
+    },
+    {
       "id": "preview_commit_message",
       "surface": "tauri_command",
       "remoteWorkspace": "LegacyUnaudited",
@@ -6457,6 +6493,18 @@
       }
     },
     {
+      "id": "scan_legacy_migration",
+      "surface": "tauri_command",
+      "remoteWorkspace": "LocalOnly",
+      "peer": {
+        "kind": "controller_local"
+      },
+      "cliPeer": {
+        "kind": "unsupported",
+        "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
+      }
+    },
+    {
       "id": "scan_workspace_info",
       "surface": "tauri_command",
       "remoteWorkspace": "RemoteUnsupported",
@@ -6790,6 +6838,18 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
+      }
+    },
+    {
+      "id": "set_legacy_migration_prompt_preference",
+      "surface": "tauri_command",
+      "remoteWorkspace": "LocalOnly",
+      "peer": {
+        "kind": "controller_local"
+      },
+      "cliPeer": {
+        "kind": "unsupported",
+        "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
       }
     },
     {

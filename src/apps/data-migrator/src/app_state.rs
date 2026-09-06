@@ -1,21 +1,21 @@
 use openbitfun_core::legacy_migration::adapters_for_groups;
 use openbitfun_core_types::product_identity::product_id;
 use openbitfun_legacy_migration::{
-    atomic_write_json, blocking_writer_processes_for_product, launch_trusted_executable,
-    probe_legacy_source, CancellationToken, HandoffDisposition, HandoffStore, LegacyMigrationError,
-    LegacyMigrationResult, MigrationEngine, MigrationLayout, MigrationRoots, NoCrashInjection,
-    PlatformExecutableTrustVerifier, ProbeLimits, TrustedInstallationResolver, WriterProcess,
+    blocking_writer_processes_for_product, launch_trusted_executable, probe_legacy_source,
+    CancellationToken, HandoffDisposition, HandoffStore, LegacyMigrationError,
+    LegacyMigrationResult, MigrationEngine, MigrationLayout, MigrationOnboardingStore,
+    MigrationRoots, NoCrashInjection, PlatformExecutableTrustVerifier, ProbeLimits,
+    TrustedInstallationResolver, WriterProcess,
 };
 use openbitfun_product_capabilities::{product_assembly_plan_for_profile, DeliveryProfile};
 use openbitfun_product_domains::legacy_migration::{
     LegacySourceDescriptor, MigrationPhase, MigrationPlan, MigrationProgressEvent,
     MigrationPromptChoice, MigrationRunReport, MigrationRunStatus, MigrationSelection,
     MigratorHandoffRequest, MigratorProtocolCapabilities, MigratorRequestMode, ScanFinding,
+    CURRENT_MIGRATION_FORMAT_VERSION,
 };
 use serde::Serialize;
-use serde_json::{json, Map, Value};
 use std::ffi::OsStr;
-use std::fs;
 use std::path::Path;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -676,12 +676,25 @@ impl MigratorCoordinator {
 
     fn persist_prompt_choice(&self, choice: MigrationPromptChoice) -> LegacyMigrationResult<()> {
         let session = self.lock();
-        write_onboarding_choice(
-            &session.roots,
-            &session.request,
-            session.source.as_ref(),
-            choice,
-        )
+        let store = MigrationOnboardingStore::new(session.roots.clone());
+        let request = &session.request;
+        let source = session.source.as_ref();
+        let has_report = session.report.is_some();
+        store.update(|state| {
+            state.format_version = CURRENT_MIGRATION_FORMAT_VERSION;
+            if let Some(source) = source {
+                state.source_fingerprint = source.source_fingerprint.clone();
+                state.detected_at_ms.get_or_insert_with(now_ms);
+            }
+            state.choice = choice;
+            state.last_prompted_version = Some(env!("CARGO_PKG_VERSION").to_string());
+            state.run_id = Some(request.run_id.clone());
+            state.handled_run_id = Some(request.run_id.clone());
+            if has_report {
+                state.last_report_run_id = Some(request.run_id.clone());
+            }
+        })?;
+        Ok(())
     }
 
     fn restart_desktop(&self) -> LegacyMigrationResult<()> {
@@ -867,55 +880,6 @@ fn status_for_phase(phase: MigrationPhase) -> MigrationRunStatus {
     }
 }
 
-fn write_onboarding_choice(
-    roots: &MigrationRoots,
-    request: &MigratorHandoffRequest,
-    source: Option<&LegacySourceDescriptor>,
-    choice: MigrationPromptChoice,
-) -> LegacyMigrationResult<()> {
-    let path = roots.migration_root().join("onboarding.json");
-    let mut object = match fs::read(&path) {
-        Ok(bytes) => serde_json::from_slice::<Value>(&bytes)
-            .ok()
-            .and_then(|value| value.as_object().cloned())
-            .ok_or_else(|| {
-                LegacyMigrationError::InvalidRequest(
-                    "existing migration onboarding state is unreadable".to_string(),
-                )
-            })?,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Map::new(),
-        Err(error) => {
-            return Err(LegacyMigrationError::Io {
-                path,
-                source: error,
-            });
-        }
-    };
-    object.insert("formatVersion".to_string(), json!(1));
-    object.insert(
-        "sourceFingerprint".to_string(),
-        json!(source
-            .map(|value| value.source_fingerprint.as_str())
-            .unwrap_or("")),
-    );
-    object.insert("detectedAtMs".to_string(), json!(now_ms()));
-    object.insert(
-        "choice".to_string(),
-        serde_json::to_value(choice).map_err(|_| {
-            LegacyMigrationError::InvalidRequest(
-                "migration prompt choice could not be serialized".to_string(),
-            )
-        })?,
-    );
-    object.insert(
-        "lastPromptedVersion".to_string(),
-        json!(env!("CARGO_PKG_VERSION")),
-    );
-    object.insert("runId".to_string(), json!(request.run_id));
-    object.insert("handledRunId".to_string(), json!(request.run_id));
-    atomic_write_json(&path, &Value::Object(object))
-}
-
 fn now_ms() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -932,6 +896,7 @@ mod tests {
         MigratorProtocolCapability, MigratorRequestOrigin, CURRENT_MIGRATOR_PROTOCOL_VERSION,
     };
     use std::collections::BTreeSet;
+    use std::fs;
 
     fn fixture_roots(root: &Path) -> MigrationRoots {
         MigrationRoots {
@@ -993,24 +958,6 @@ mod tests {
         assert_eq!(view.mode, MigratorRequestMode::Onboarding);
         assert!(view.source.is_some());
         assert!(!view.recovery);
-    }
-
-    #[test]
-    fn onboarding_update_preserves_unknown_future_fields() {
-        let temporary = tempfile::tempdir().unwrap();
-        let roots = fixture_roots(temporary.path());
-        let request = handoff_request();
-        let path = roots.migration_root().join("onboarding.json");
-        fs::create_dir_all(path.parent().unwrap()).unwrap();
-        fs::write(&path, br#"{"futureField":{"keep":true}}"#).unwrap();
-
-        write_onboarding_choice(&roots, &request, None, MigrationPromptChoice::RemindLater)
-            .unwrap();
-
-        let value: Value = serde_json::from_slice(&fs::read(path).unwrap()).unwrap();
-        assert_eq!(value["futureField"]["keep"], true);
-        assert_eq!(value["choice"], "remind_later");
-        assert_eq!(value["handledRunId"], request.run_id);
     }
 
     #[test]
