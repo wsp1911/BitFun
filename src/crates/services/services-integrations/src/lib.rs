@@ -72,6 +72,9 @@ pub mod miniapp_market;
 #[cfg(feature = "plugin-source")]
 pub mod plugin_source;
 
+#[cfg(any(feature = "git", feature = "review-platform"))]
+mod repository_trust;
+
 #[cfg(feature = "remote-connect")]
 pub mod remote_connect;
 
