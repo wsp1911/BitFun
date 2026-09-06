@@ -111,4 +111,19 @@ describe('SystemAPI', () => {
     await expect(systemAPI.setClipboard('device-code')).rejects.toThrow('Clipboard write failed');
     expect(invokeMock).not.toHaveBeenCalled();
   });
+
+  it('checks path existence through an explicit remote workspace scope', async () => {
+    invokeMock.mockResolvedValueOnce(true);
+
+    await expect(systemAPI.checkPathExists(
+      '/remote/workspace/src/existing.ts',
+      'remote-connection-1',
+    )).resolves.toBe(true);
+    expect(invokeMock).toHaveBeenCalledWith('check_path_exists', {
+      request: {
+        path: '/remote/workspace/src/existing.ts',
+        remoteConnectionId: 'remote-connection-1',
+      },
+    });
+  });
 });
