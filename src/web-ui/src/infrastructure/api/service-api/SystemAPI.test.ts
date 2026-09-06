@@ -112,17 +112,15 @@ describe('SystemAPI', () => {
     expect(invokeMock).not.toHaveBeenCalled();
   });
 
-  it('checks path existence through an explicit remote workspace scope', async () => {
+  it('checks path existence on the active host', async () => {
     invokeMock.mockResolvedValueOnce(true);
 
     await expect(systemAPI.checkPathExists(
-      '/remote/workspace/src/existing.ts',
-      'remote-connection-1',
+      '/workspace/src/existing.ts',
     )).resolves.toBe(true);
     expect(invokeMock).toHaveBeenCalledWith('check_path_exists', {
       request: {
-        path: '/remote/workspace/src/existing.ts',
-        remoteConnectionId: 'remote-connection-1',
+        path: '/workspace/src/existing.ts',
       },
     });
   });
