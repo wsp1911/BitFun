@@ -1,8 +1,8 @@
 use openbitfun_core::legacy_migration::adapters_for_groups;
 use openbitfun_core_types::product_identity::product_id;
 use openbitfun_legacy_migration::{
-    blocking_writer_processes_for_product, launch_trusted_executable, probe_legacy_source,
-    CancellationToken, HandoffDisposition, HandoffStore, LegacyMigrationError,
+    blocking_writer_processes_for_product, export_failure_diagnostics, launch_trusted_executable,
+    probe_legacy_source, CancellationToken, HandoffDisposition, HandoffStore, LegacyMigrationError,
     LegacyMigrationResult, MigrationEngine, MigrationLayout, MigrationOnboardingStore,
     MigrationRoots, NoCrashInjection, PlatformExecutableTrustVerifier, ProbeLimits,
     TrustedInstallationResolver, WriterProcess,
@@ -165,6 +165,12 @@ pub(crate) struct MigratorView {
     pub error: Option<CommandError>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct DiagnosticsExportView {
+    pub file_path: String,
+}
+
 #[derive(Debug)]
 struct MigratorSession {
     roots: MigrationRoots,
@@ -268,6 +274,32 @@ impl MigratorCoordinator {
     pub(crate) fn snapshot(&self) -> MigratorView {
         let session = self.lock();
         snapshot(&session)
+    }
+
+    pub(crate) fn export_diagnostics(&self) -> Result<DiagnosticsExportView, CommandError> {
+        let session = self.lock();
+        if session.running {
+            return Err(CommandError::operation_in_progress());
+        }
+        let report = session.report.clone().ok_or_else(|| {
+            CommandError::new(
+                "diagnostics_unavailable",
+                "Failure diagnostics are available after a migration failure.",
+                false,
+            )
+        })?;
+        let layout = MigrationLayout::new(&session.roots, &report.run_id);
+        drop(session);
+        let path = export_failure_diagnostics(&layout, &report).map_err(|_| {
+            CommandError::new(
+                "diagnostics_export_failed",
+                "OpenBitFun could not write the sanitized migration diagnostics file.",
+                true,
+            )
+        })?;
+        Ok(DiagnosticsExportView {
+            file_path: path.to_string_lossy().to_string(),
+        })
     }
 
     pub(crate) fn scan(&self, selection: MigrationSelection) -> Result<MigratorView, CommandError> {

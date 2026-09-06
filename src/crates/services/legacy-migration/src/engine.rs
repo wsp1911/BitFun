@@ -1,6 +1,7 @@
 use crate::{
-    atomic_write_json, probe_legacy_source, LegacyMigrationError, LegacyMigrationResult,
-    MigrationLayout, MigrationLock, MigrationRoots, ProbeLimits,
+    atomic_write_json, diagnostics::persist_release_observation, probe_legacy_source,
+    LegacyMigrationError, LegacyMigrationResult, MigrationLayout, MigrationLock, MigrationRoots,
+    ProbeLimits,
 };
 use openbitfun_product_domains::legacy_migration::{
     FindingSeverity, LegacySourceDescriptor, MigrationConflict, MigrationDiagnostic,
@@ -294,6 +295,17 @@ impl MigrationEngine {
             report.status,
             MigrationRunStatus::Completed | MigrationRunStatus::CompletedWithWarnings
         ) {
+            let result_code = match report.status {
+                MigrationRunStatus::CompletedWithWarnings => "migration_completed_with_warnings",
+                _ => "migration_completed",
+            };
+            persist_release_observation(
+                &layout,
+                &report,
+                result_code,
+                None,
+                report.finished_at_ms.unwrap_or_else(now_ms),
+            )?;
             return Ok(report);
         }
         normalize_report(plan, &mut report);
@@ -611,6 +623,11 @@ impl MigrationEngine {
         } else {
             MigrationRunStatus::Completed
         };
+        let final_code = if has_warnings {
+            "migration_completed_with_warnings"
+        } else {
+            "migration_completed"
+        };
         transition(
             &layout,
             &mut report,
@@ -619,7 +636,7 @@ impl MigrationEngine {
             MigrationPhase::Finalize,
             None,
             None,
-            "migration_completed",
+            final_code,
         )?;
         emit_progress(
             &mut progress,
@@ -628,7 +645,7 @@ impl MigrationEngine {
             MigrationPhase::Finalize,
             plan.steps.len(),
             true,
-            "migration_completed",
+            final_code,
         );
         Ok(report)
     }
@@ -759,6 +776,13 @@ fn load_or_create_report(
         ..MigrationRunReport::default()
     };
     persist_report(layout, &report)?;
+    persist_release_observation(
+        layout,
+        &report,
+        "migration_planned",
+        None,
+        report.started_at_ms,
+    )?;
     Ok(report)
 }
 
@@ -811,7 +835,7 @@ fn journal(
     code: &str,
 ) -> LegacyMigrationResult<()> {
     *sequence = sequence.saturating_add(1);
-    layout.append_journal(&MigrationJournalEvent {
+    let event = MigrationJournalEvent {
         format_version: CURRENT_MIGRATION_FORMAT_VERSION,
         sequence: *sequence,
         recorded_at_ms: now_ms(),
@@ -821,7 +845,14 @@ fn journal(
         domain,
         domain_state,
         code: code.to_string(),
-    })
+    };
+    layout.append_journal(&event)?;
+    let failure_phase = matches!(
+        report.status,
+        MigrationRunStatus::FailedRecoverable | MigrationRunStatus::FailedManualActionRequired
+    )
+    .then_some(phase);
+    persist_release_observation(layout, report, code, failure_phase, event.recorded_at_ms)
 }
 
 fn record_domain_failure(

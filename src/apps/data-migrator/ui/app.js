@@ -15,6 +15,8 @@ const translations = {
     phase: 'Phase', domain: 'Domain', count: 'Completed steps',
     cancel: 'Cancel at a safe boundary', stepDone: 'Result', reportTitle: 'Migration report',
     reportPrivacy: 'This summary contains counts and result codes, not credentials or user content.',
+    exportDiagnostics: 'Export failure diagnostics',
+    diagnosticsExported: 'Sanitized diagnostics saved to {path}',
     openDesktop: 'Open OpenBitFun', ready: 'Ready', unsupported: 'Unsupported', missing: 'Not found',
     sourceFound: 'BitFun {version} was found. The source stays read-only.',
     recovery: 'A previous migration journal was found and can be resumed.',
@@ -34,7 +36,9 @@ const translations = {
     planTitle: '确认迁移', retryWriters: '重新检查进程', start: '开始迁移',
     stepProgress: '第 5 步', progressTitle: '迁移进度', phase: '阶段', domain: '领域',
     count: '已完成步骤', cancel: '在安全边界取消', stepDone: '结果', reportTitle: '迁移报告',
-    reportPrivacy: '此摘要仅包含计数和结果码，不包含凭据或用户正文。', openDesktop: '打开 OpenBitFun',
+    reportPrivacy: '此摘要仅包含计数和结果码，不包含凭据或用户正文。',
+    exportDiagnostics: '导出失败诊断', diagnosticsExported: '去敏诊断已保存到 {path}',
+    openDesktop: '打开 OpenBitFun',
     ready: '可迁移', unsupported: '不受支持', missing: '未发现',
     sourceFound: '已发现 BitFun {version}。迁移期间来源保持只读。',
     recovery: '发现上次迁移日志，可以从安全状态继续。',
@@ -53,7 +57,9 @@ const translations = {
     planTitle: '確認遷移', retryWriters: '重新檢查程序', start: '開始遷移',
     stepProgress: '第 5 步', progressTitle: '遷移進度', phase: '階段', domain: '領域',
     count: '已完成步驟', cancel: '在安全邊界取消', stepDone: '結果', reportTitle: '遷移報告',
-    reportPrivacy: '此摘要僅包含計數和結果碼，不包含憑據或使用者正文。', openDesktop: '開啟 OpenBitFun',
+    reportPrivacy: '此摘要僅包含計數和結果碼，不包含憑據或使用者正文。',
+    exportDiagnostics: '匯出失敗診斷', diagnosticsExported: '去敏診斷已儲存至 {path}',
+    openDesktop: '開啟 OpenBitFun',
     ready: '可遷移', unsupported: '不支援', missing: '未發現',
     sourceFound: '已發現 BitFun {version}。遷移期間來源保持唯讀。',
     recovery: '發現上次遷移日誌，可以從安全狀態繼續。',
@@ -212,6 +218,13 @@ function render(view) {
       row(result.domain, `${result.imported} ${text.imported}, ${result.skipped} ${text.skipped}, ${result.warnings.length} ${text.warnings}`)));
   }
   show('report-card', !view.running && (Boolean(view.report) || view.status === 'cancelled'));
+  const canExportDiagnostics = ['failed_recoverable', 'failed_manual_action_required'].includes(view.status);
+  show('export-diagnostics', canExportDiagnostics);
+  if (!canExportDiagnostics) {
+    const output = document.getElementById('diagnostics-path');
+    output.textContent = '';
+    output.hidden = true;
+  }
   document.getElementById('start').disabled = !view.canExecute;
 
   if (view.running && !pollTimer) {
@@ -265,6 +278,20 @@ document.getElementById('start').addEventListener('click', () =>
   call('start_legacy_migration', { planHash: current.plan.planHash }));
 document.getElementById('cancel').addEventListener('click', () =>
   call('cancel_legacy_migration'));
+document.getElementById('export-diagnostics').addEventListener('click', async () => {
+  setBusy(true);
+  try {
+    const result = await invoke('export_migration_diagnostics', { request: {} });
+    const output = document.getElementById('diagnostics-path');
+    output.textContent = format(text.diagnosticsExported, { path: result.filePath });
+    output.hidden = false;
+  } catch (error) {
+    notice(error?.message || String(error));
+  } finally {
+    setBusy(false);
+    if (current) render(current);
+  }
+});
 document.getElementById('open-desktop').addEventListener('click', () =>
   call('finish_legacy_migration', { choice: current.report ? 'migrate_now' : 'remind_later' }));
 

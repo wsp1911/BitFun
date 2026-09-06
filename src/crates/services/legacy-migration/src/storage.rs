@@ -47,6 +47,14 @@ impl MigrationLayout {
         self.run_root().join("report.json")
     }
 
+    pub fn release_observation_path(&self) -> PathBuf {
+        self.run_root().join("release-observation.json")
+    }
+
+    pub fn failure_diagnostics_path(&self) -> PathBuf {
+        self.run_root().join("failure-diagnostics.json")
+    }
+
     pub fn stage_root(&self) -> PathBuf {
         self.run_root().join("stage")
     }
