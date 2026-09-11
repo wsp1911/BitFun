@@ -8,6 +8,9 @@ import { CornerUpLeft, Loader2, Square } from 'lucide-react';
 import {FlowChatContext, FlowChatVolatileContext} from '../modern/FlowChatContext';
 import {BtwVirtualSessionList} from './BtwVirtualSessionList';
 import {useBtwSessionState} from './useBtwSessionState';
+// #region agent log
+import {useSubagentMemoryProbe} from './subagentMemoryProbe';
+// #endregion
 import {useFlowChatViewportOwner} from '../modern/useFlowChatViewportOwner';
 import {RuntimeStatusSlot} from '../modern/RuntimeStatusSlot';
 import {pendingPermissionToolCallIdsForSession} from '../modern/permissionRequestRouting';
@@ -232,6 +235,9 @@ const BtwSessionPanelContent: React.FC<BtwSessionPanelProps & { viewState: BtwPa
     onExpandAllInTurn,
     onCollapseGroup,
   } = useExploreGroupState(virtualItems, viewState.exploreGroupStates);
+  // #region agent log
+  useSubagentMemoryProbe(childSessionId, virtualItems.length);
+  // #endregion
   useEffect(() => {
     viewState.exploreGroupStates = exploreGroupStates;
   }, [exploreGroupStates, viewState]);

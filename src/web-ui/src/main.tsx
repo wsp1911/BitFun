@@ -432,3 +432,8 @@ async function startApplication(): Promise<void> {
 }
 
 void startApplication();
+// #region agent log
+if (import.meta.env.DEV) {
+  void import('./flow_chat/components/btw/subagentMemoryProbe').then(module => module.startSubagentMemoryProbe());
+}
+// #endregion
