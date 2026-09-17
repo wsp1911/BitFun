@@ -108,6 +108,18 @@ fn cli_agent_controls_its_own_isolated_config_through_openbitfun_control() {
     let environment = CliTestEnvironment::new();
     environment.configure_product_control_mock_model(server.base_url());
     let mut command = environment.std_command();
+    let probe = std::env::var("OPENBITFUN_CI_CONTROL_STACK_PROBE").unwrap_or_default();
+    #[cfg(target_os = "linux")]
+    if probe == "gdb" {
+        command = environment.product_control_debugger_command();
+    }
+    // Override only this disposable child, not the test runner or product defaults.
+    if probe == "large-stack" {
+        command.env("RUST_MIN_STACK", "16777216");
+    }
+    if !probe.is_empty() {
+        eprintln!("CONTROL_STACK_PROBE mode={probe} starting isolated CLI child");
+    }
     command.args([
         "exec",
         "用 OpenBitFunControl 搜索工具调用超时，读取、配置为 74，再回读",
@@ -119,6 +131,27 @@ fn cli_agent_controls_its_own_isolated_config_through_openbitfun_control() {
 
     let output = command_output_with_timeout(&mut command, std::time::Duration::from_secs(60));
     let stdout = stdout(&output);
+    if !probe.is_empty() || !output.status.success() {
+        let requests = server.chat_completion_request_bodies();
+        eprintln!(
+            "CONTROL_STACK_PROBE mode={probe} exit={} requests={} last_mock_stage={} persisted_timeout={}",
+            output.status,
+            requests.len(),
+            match requests.len() {
+                0 => "search_not_requested",
+                1 => "search_sent",
+                2 => "get_before_sent",
+                3 => "configure_sent",
+                4 => "get_after_sent",
+                _ => "completion_sent",
+            },
+            environment.app_config()["ai"]["tool_execution_timeout_secs"],
+        );
+        if !probe.is_empty() {
+            eprintln!("CONTROL_STACK_PROBE child stderr:\n{}", stderr(&output));
+            eprintln!("CONTROL_STACK_PROBE child stdout:\n{stdout}");
+        }
+    }
     assert!(output.status.success(), "{}\n{stdout}", stderr(&output));
     assert!(stdout.contains("PRODUCT_CONTROL_SELF_TEST_OK"), "{stdout}");
     server.assert_chat_completion_requests(5);

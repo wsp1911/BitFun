@@ -164,8 +164,45 @@ jobs:
         run: cargo test --locked -p openbitfun-cli -p openbitfun-acp
 
       - name: Run CLI, ACP, and agent runtime tests
+        id: linux_cli_tests
         if: runner.os == 'Linux'
         run: cargo test --locked -p openbitfun-cli -p openbitfun-acp -p openbitfun-agent-runtime
+
+      # Temporary stack-overflow probe. Preserve the original failed check;
+      # these bounded reruns collect evidence, never replace its result.
+      - name: Diagnose isolated product-control stack overflow
+        if: failure() && runner.os == 'Linux' && steps.linux_cli_tests.outcome == 'failure'
+        timeout-minutes: 10
+        shell: bash
+        run: |
+          sudo apt-get install -y --no-install-recommends gdb
+          probe_dir="$RUNNER_TEMP/control-stack-probe"
+          mkdir -p "$probe_dir"
+          rustc -Vv | tee "$probe_dir/environment.txt"
+          uname -a | tee -a "$probe_dir/environment.txt"
+          ulimit -s | tee -a "$probe_dir/environment.txt"
+          printf 'RUST_MIN_STACK=%s\n' "${RUST_MIN_STACK:-unset}" | tee -a "$probe_dir/environment.txt"
+          for mode in default default gdb large-stack large-stack; do
+            probe_index=$(( ${probe_index:-0} + 1 ))
+            set +e
+            OPENBITFUN_CI_CONTROL_STACK_PROBE="$mode" timeout --kill-after=10s 90s \
+              cargo test --locked -p openbitfun-cli -p openbitfun-acp -p openbitfun-agent-runtime \
+              exec_cli_contracts::cli_agent_controls_its_own_isolated_config_through_openbitfun_control \
+              -- --exact --nocapture --test-threads=1 \
+              2>&1 | tee "$probe_dir/$probe_index-$mode.log"
+            probe_status=${PIPESTATUS[0]}
+            set -e
+            printf 'mode=%s exit=%s\n' "$mode" "$probe_status" | tee -a "$probe_dir/outcomes.txt"
+          done
+
+      - name: Upload product-control stack probe
+        if: always() && runner.os == 'Linux' && steps.linux_cli_tests.outcome == 'failure'
+        uses: actions/upload-artifact@v6
+        with:
+          name: control-stack-probe-linux
+          path: ${{ runner.temp }}/control-stack-probe
+          retention-days: 7
+          if-no-files-found: warn
 
       # ConPTY is a Windows-only execution path. Keep its interactive contracts
       # serialized: concurrent native PTYs contend on hosted runners and used to

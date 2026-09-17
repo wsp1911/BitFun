@@ -241,6 +241,39 @@ impl CliTestEnvironment {
         command
     }
 
+    /// Temporary CI probe for the isolated product-control child only.
+    #[cfg(target_os = "linux")]
+    pub(crate) fn product_control_debugger_command(&self) -> Command {
+        let mut command = openbitfun_services_core::process_manager::create_command("gdb");
+        command.current_dir(&self.workspace);
+        self.apply_std_environment(&mut command);
+        command.args([
+            "--quiet",
+            "--nx",
+            "--batch",
+            "--return-child-result",
+            "-ex",
+            "set pagination off",
+            "-ex",
+            "set print frame-arguments none",
+            "-ex",
+            "set disable-randomization off",
+            "-ex",
+            "run",
+            "-ex",
+            concat!(
+                "source ",
+                env!("CARGO_MANIFEST_DIR"),
+                "/tests/support/control_stack_probe.gdb"
+            ),
+            "-ex",
+            "thread apply all bt 80",
+            "--args",
+            env!("CARGO_BIN_EXE_openbitfun"),
+        ]);
+        command
+    }
+
     pub(crate) fn apply_tokio_environment(&self, command: &mut tokio::process::Command) {
         command
             .current_dir(&self.workspace)
