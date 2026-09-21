@@ -58,6 +58,7 @@ import {
   isProjectedFirstRuntimeTurn,
   isProjectedSessionEmpty,
 } from '../../utils/flowChatTurnIdentity';
+import { logSessionOpening, logSessionOpeningElapsed, sessionOpeningNow } from '@/shared/utils/sessionOpeningDebug';
 
 const log = createLogger('SessionModule');
 const pendingSessionCreations = new Map<string, Promise<string>>();
@@ -130,6 +131,8 @@ async function hydrateHistoricalSession(
     deferFullHistoryUntilActive?: boolean;
   },
 ): Promise<void> {
+  const hydrateStartedAt = sessionOpeningNow();
+  logSessionOpening('D', 'SessionModule.hydrateHistoricalSession', 'started', { sessionId });
   const surfaceScope = getActiveSurfaceScope();
   const initialSession = context.flowChatStore.getState().sessions.get(sessionId);
   if (!initialSession) return;
@@ -231,6 +234,7 @@ async function hydrateHistoricalSession(
         deferFullHistoryUntilActive,
       });
     surfaceScope.assertCurrent('finish historical session hydration');
+    logSessionOpeningElapsed('D', 'SessionModule.hydrateHistoricalSession', 'finished', hydrateStartedAt, { sessionId });
   })();
 
   context.pendingHistoryLoads.set(pendingKey, loadPromise);
@@ -513,6 +517,8 @@ export async function switchChatSession(
   isStillRelevant: () => boolean = () => true,
 ): Promise<void> {
   const surfaceScope = getActiveSurfaceScope();
+  const switchStartedAt = sessionOpeningNow();
+  logSessionOpening('C', 'SessionModule.switchChatSession', 'started', { sessionId });
   try {
     if (!isStillRelevant()) return;
     const switchRequestId = ++latestSwitchRequestId;
@@ -627,6 +633,7 @@ export async function switchChatSession(
         }
       });
     }
+    logSessionOpeningElapsed('C', 'SessionModule.switchChatSession', 'finished', switchStartedAt, { sessionId });
   } catch (error) {
     if (isSurfaceChangedError(error)) {
       throw error;

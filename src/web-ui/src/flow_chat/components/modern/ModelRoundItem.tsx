@@ -15,6 +15,9 @@ import type { ModelRound, ModelRoundAttempt, ModelRoundAttemptDiagnostic, FlowIt
 import { useI18n } from '@/infrastructure/i18n';
 import { FlowTextBlock } from '../FlowTextBlock';
 import { FlowToolCard } from '../FlowToolCard';
+// #region agent log
+import { OpeningRenderProbe } from '@/shared/utils/sessionOpeningDebug';
+// #endregion
 import { ModelThinkingDisplay } from '../../tool-cards/ModelThinkingDisplay';
 import { TypewriterRevealGateProvider } from '../../hooks/TypewriterRevealGate';
 import { useCreateTypewriterRevealGate } from '../../hooks/typewriterRevealGateContext';
@@ -908,6 +911,8 @@ const FlowItemRenderer: React.FC<FlowItemRendererProps> = ({
 
       return (
         <div className="flowchat-flow-item" data-flow-item-id={item.id} data-flow-item-type="tool" data-openbitfun-product-component="model-round-item" data-openbitfun-product-part="toolItem">
+          {/* #region agent log */}
+          <OpeningRenderProbe group="toolCard">
           <FlowToolCard
             toolItem={toolItem}
             isLastItem={isLastItem}
@@ -934,6 +939,8 @@ const FlowItemRenderer: React.FC<FlowItemRendererProps> = ({
             sessionId={sessionId}
             turnId={turnId}
           />
+          </OpeningRenderProbe>
+          {/* #endregion */}
         </div>
       );
     }

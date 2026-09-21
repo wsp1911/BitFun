@@ -59,15 +59,6 @@ test("OverflowText measures real clipping for fade and marquee treatments", asyn
     readFile(new URL("../src/primitives/OverflowText/OverflowText.module.css", import.meta.url), "utf8"),
   ]);
 
-  assert.match(source, /content\.scrollWidth - element\.clientWidth/);
-  assert.match(source, /lines !== undefined\s*&& element\.clientHeight > 0\s*&& element\.scrollHeight > element\.clientHeight/s);
-  assert.match(source, /measurementRef\.current/);
-  assert.match(
-    source,
-    /useIsomorphicLayoutEffect\(\(\) => \{\s*updateOverflow\(\);\s*\}, \[behavior, children, lines, overflowStyle, updateOverflow\]\);/s,
-  );
-  assert.match(source, /new ResizeObserver\(updateOverflow\)/);
-  assert.match(source, /resizeObserver\?\.observe\(contentRef\.current\)/);
   assert.match(source, /--_overflow-text-marquee-distance/);
   assert.match(source, /--_overflow-text-marquee-duration/);
   assert.match(styles, /text-overflow:\s*clip/);

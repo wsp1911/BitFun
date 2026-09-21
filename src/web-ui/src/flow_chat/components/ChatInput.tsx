@@ -1,3 +1,6 @@
+// #region agent log
+import { recordOpeningPipeline, useOpeningPipelineEffect, useOpeningPipelineLayoutEffect } from '@/shared/utils/sessionOpeningDebug';
+// #endregion
 import { useDeviceDirectory, resolveDeviceNameFrom } from '@/infrastructure/account/deviceDirectory';
 import { ChatInputAttachments } from './ChatInputAttachments';
 import { useExcerptComposerActions } from '../selection/useExcerptComposerActions';
@@ -8,7 +11,7 @@ import { withConversationExcerpts } from '../utils/composerPresentation';
  * Separated from bottom bar, supports session-level state awareness
  */
 
-import React, { useRef, useCallback, useEffect, useReducer, useState, useMemo, useSyncExternalStore } from 'react';
+import React, { useRef, useCallback, useReducer, useState, useMemo, useSyncExternalStore } from 'react';
 import path from 'path-browserify';
 import { useTranslation } from 'react-i18next';
 import { RotateCcw, Loader2, Play } from 'lucide-react';
@@ -512,6 +515,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   registration,
   presentation = 'standard',
 }) => {
+  recordOpeningPipeline('ChatInput.renderAttempt');
   const deviceSurfaceScope = getActiveSurfaceScope();
   const deviceDirectory = useDeviceDirectory();
   const { t } = useTranslation('flow-chat');
@@ -526,7 +530,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     setActiveBoostSubmenu(current => open ? id : current === id ? null : current);
   }, []);
 
-  useEffect(() => {
+  useOpeningPipelineEffect('ChatInput.passive.L530', () => {
     if (!modeState.dropdownOpen) setActiveBoostSubmenu(null);
   }, [modeState.dropdownOpen]);
   
@@ -555,7 +559,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   const largePasteCountersRef = useRef<Record<number, number>>({});
   const undoImageStackRef = useRef<string[]>([]);
 
-  useEffect(() => {
+  useOpeningPipelineEffect('ChatInput.passive.L559', () => {
     chatInputMountedRef.current = true;
     return () => {
       chatInputMountedRef.current = false;
@@ -985,7 +989,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   measureIsMultiLineRef.current = measureIsMultiLine;
 
   // Re-measure when value or attachments change (handles typing / deleting)
-  useEffect(() => {
+  useOpeningPipelineEffect('ChatInput.passive.L989', () => {
     // Defer one frame so RichTextInput has synced the new value to the contenteditable DOM.
     const rafId = requestAnimationFrame(() => {
       measureIsMultiLine('value-effect');
@@ -997,7 +1001,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   // Also watch DOM mutations on the editor so that Shift+Enter in an empty input
   // (which adds a <br> without changing the React value) triggers expansion,
   // and so that residual <br> after deletion is detected for placeholder visibility.
-  useEffect(() => {
+  useOpeningPipelineEffect('ChatInput.passive.L1001', () => {
     const el = richTextInputRef.current;
     if (!el) return;
     let rafId: number;
@@ -1016,7 +1020,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     };
   }, [checkDomEmpty]);
 
-  useEffect(() => {
+  useOpeningPipelineEffect('ChatInput.passive.L1020', () => {
     const containerEl = containerRef.current;
     const boxEl = containerEl?.querySelector('.openbitfun-chat-input__box') as HTMLElement | null;
     const actionsLeftEl = containerEl?.querySelector('.openbitfun-chat-input__actions-left') as HTMLElement | null;
@@ -1075,7 +1079,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     showTargetSwitcher,
   ]);
 
-  useEffect(() => {
+  useOpeningPipelineEffect('ChatInput.passive.L1079', () => {
     return () => {
       if (collapseVerificationRafRef.current !== null) {
         cancelAnimationFrame(collapseVerificationRafRef.current);
@@ -1286,7 +1290,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
 
   const setChatInputHeight = useChatInputState(state => state.setInputHeight);
 
-  useEffect(() => {
+  useOpeningPipelineEffect('ChatInput.passive.L1290', () => {
     const store = FlowChatStore.getInstance();
 
     const unsubscribe = store.subscribeSelector(
@@ -1331,14 +1335,14 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     return () => unsubscribe();
   }, [currentSessionId, effectiveTargetSessionId, activeBtwSessionId]);
 
-  useEffect(() => {
+  useOpeningPipelineEffect('ChatInput.passive.L1335', () => {
     if (!showTargetSwitcher || !activeBtwSessionId) {
       setInputTarget('main');
     }
   }, [activeBtwSessionId, showTargetSwitcher]);
 
   // Reset history index when switching sessions
-  useEffect(() => {
+  useOpeningPipelineEffect('ChatInput.passive.L1342', () => {
     setHistoryIndex(-1);
   }, [effectiveTargetSessionId]);
   
@@ -1405,7 +1409,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   }, [effectiveSendAgentType, modeState.available]);
   const targetWorkspacePath = sessionBoundWorkspacePath;
 
-  useEffect(() => {
+  useOpeningPipelineEffect('ChatInput.passive.L1409', () => {
     if (!isSubagentInputTarget) {
       setSubagentToolInfo(null);
       return;
@@ -1454,7 +1458,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     targetWorkspacePath,
   ]);
 
-  useEffect(() => {
+  useOpeningPipelineEffect('ChatInput.passive.L1458', () => {
     if (isSubagentInputTarget) {
       setTargetModeEnabledTools(null);
       setTargetModeToolsResolved(false);
@@ -1715,7 +1719,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     }
   }, [isAcpInputSession, inputWorkspaceId]);
 
-  useEffect(() => {
+  useOpeningPipelineEffect('ChatInput.passive.L1719', () => {
     externalPromptCatalogRequestRef.current += 1;
     setExternalPromptCommands([]);
     setExternalPromptCommandsPending(false);
@@ -1730,7 +1734,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     };
   }, [refreshExternalPromptCommands]);
 
-  useEffect(() => {
+  useOpeningPipelineEffect('ChatInput.passive.L1734', () => {
     if (!externalPromptCommandsPending) return undefined;
     let cancelled = false;
     let timer: number | undefined;
@@ -1828,7 +1832,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   });
 
   const slashPickerWasActiveRef = useRef(false);
-  useEffect(() => {
+  useOpeningPipelineEffect('ChatInput.passive.L1832', () => {
     const opening = slashCommandState.isActive && !slashPickerWasActiveRef.current;
     slashPickerWasActiveRef.current = slashCommandState.isActive;
     if (opening && !externalPromptCommandsLoading && !externalPromptCommandsPending) {
@@ -1847,11 +1851,11 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   // Keep the module-level flag in sync for other Escape owners such as modal
   // surfaces. The local state is included above so this composer does not wait
   // for the effect before giving the key to its popup.
-  useEffect(() => {
+  useOpeningPipelineEffect('ChatInput.passive.L1851', () => {
     setChatPopupActive(slashCommandState.isActive || contextTriggerState.isActive);
   }, [contextTriggerState.isActive, slashCommandState.isActive]);
 
-  useEffect(() => {
+  useOpeningPipelineEffect('ChatInput.passive.L1855', () => {
     if (!slashCommandState.isActive) {
       return;
     }
@@ -1868,7 +1872,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     slashCommandState.selectedIndex,
   ]);
 
-  useEffect(() => {
+  useOpeningPipelineEffect('ChatInput.passive.L1872', () => {
     const closeInlineSkillPicker = () => {
       setSlashCommandState(prev => (
         prev.isActive && prev.kind === 'skills'
@@ -1903,7 +1907,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   const previousComposerSessionIdRef = useRef<string | null>(null);
   const previousComposerSurfaceEpochRef = useRef(deviceSurfaceScope.epoch);
 
-  React.useLayoutEffect(() => {
+  useOpeningPipelineLayoutEffect('ChatInput.layout.L1907', () => {
     if (!isSceneActive) return;
     const previousSessionId = previousComposerSessionIdRef.current;
     const surfaceChanged = previousComposerSurfaceEpochRef.current !== deviceSurfaceScope.epoch;
@@ -1953,7 +1957,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   }, [dispatchInput]);
   useAssistantBootstrap(effectiveTargetSession, applyAssistantBootstrapDraft);
 
-  useEffect(() => {
+  useOpeningPipelineEffect('ChatInput.passive.L1957', () => {
     let previousContexts = contextStore.getState().contexts;
     const unsubscribe = contextStore.subscribe((state) => {
       if (shouldRecordContextMutation(
@@ -1983,7 +1987,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
 
   // A conversation may move between retained hosts. Mirror external draft edits
   // (including annotation dialogs) without re-writing the same draft in a loop.
-  useEffect(() => sessionComposerStore.subscribe(state => {
+  useOpeningPipelineEffect('ChatInput.passive.L1987', () => sessionComposerStore.subscribe(state => {
     if (!deviceSurfaceScope.isCurrent()) return;
     const sessionId = effectiveTargetSessionIdRef.current;
     if (!sessionId) return;
@@ -2127,7 +2131,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     registrationId?: string;
     draftId: number;
   } | null>(null);
-  React.useEffect(() => {
+  useOpeningPipelineEffect('ChatInput.passive.L2131', () => {
     const draft = registration?.draft;
     const consumed = consumedRegisteredDraftRef.current;
     if (
@@ -2235,13 +2239,13 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     ).trim();
   }, [expandPendingLargePastes]);
 
-  React.useEffect(() => {
+  useOpeningPipelineEffect('ChatInput.passive.L2239', () => {
     if (inputState.value === '') {
       clearPendingLargePastes();
     }
   }, [clearPendingLargePastes, inputState.value]);
 
-  React.useEffect(() => {
+  useOpeningPipelineEffect('ChatInput.passive.L2245', () => {
     const handleFillInput = (event: Event) => {
       const customEvent = event as CustomEvent<{ message: string; sessionId?: string }>;
       if (customEvent.detail?.sessionId ? customEvent.detail.sessionId !== effectiveTargetSessionIdRef.current : Boolean(conversationScope)) return;
@@ -2264,7 +2268,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     };
   }, [clearPendingLargePastes, conversationScope, dispatchInput]);
 
-  React.useEffect(() => {
+  useOpeningPipelineEffect('ChatInput.passive.L2268', () => {
     const handleFillChatInput = (data: {
       sessionId?: string;
       content?: string;
@@ -2342,7 +2346,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   }, [addContext, clearPendingLargePastes, conversationScope, dispatchInput, replaceContexts]);
 
   // Expose current input value for external queries (e.g. deep review fill-back confirmation)
-  React.useEffect(() => {
+  useOpeningPipelineEffect('ChatInput.passive.L2346', () => {
     const handleGetChatInputState = (request: { sessionId?: string; getValue?: () => string }) => {
       if (request.sessionId ? request.sessionId !== effectiveTargetSessionIdRef.current : Boolean(conversationScope)) return;
       request.getValue = () => inputValueRef.current;
@@ -2355,7 +2359,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     };
   }, [conversationScope]);
 
-  React.useEffect(() => {
+  useOpeningPipelineEffect('ChatInput.passive.L2359', () => {
     const configPath = 'app.flow_chat.show_permission_mode_control';
     let cancelled = false;
     const applyVisibility = (value: unknown) => {
@@ -2384,7 +2388,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     };
   }, []);
 
-  React.useEffect(() => {
+  useOpeningPipelineEffect('ChatInput.passive.L2388', () => {
     let cancelled = false;
     const applyConfig = (config: ToolPermissionConfig) => {
       if (!cancelled) {
@@ -2413,7 +2417,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   // Reconcile persistent session state and the exact active-turn override.
   // A request generation prevents a late response from a previous session or
   // completed turn from repainting the current control.
-  React.useEffect(() => {
+  useOpeningPipelineEffect('ChatInput.passive.L2417', () => {
     const generation = ++permissionModeRequestGenerationRef.current;
     const previous = permissionModeLifecycleRef.current;
     const sessionChanged = previous.sessionId !== effectiveTargetSessionId;
@@ -2890,7 +2894,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     };
   }, [caps.submissionOptionsLocked, caps.targetModelSelection, effectiveTargetSession, t, deviceDirectory]);
 
-  React.useEffect(() => {
+  useOpeningPipelineEffect('ChatInput.passive.L2894', () => {
     if (!slashCommandState.isActive || slashCommandState.kind !== 'all' || derivedState?.isProcessing) {
       return;
     }
@@ -2902,12 +2906,12 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   // being included in the effect's dependency array (prevents rapid listener
   // teardown/re-registration on every keystroke or streaming update).
   const inputStateValueRef = React.useRef(inputState.value);
-  React.useEffect(() => {
+  useOpeningPipelineEffect('ChatInput.passive.L2906', () => {
     inputStateValueRef.current = inputState.value;
   });
 
   // Handle MCP App ui/message requests (aligned with VSCode behavior)
-  React.useEffect(() => {
+  useOpeningPipelineEffect('ChatInput.passive.L2911', () => {
     const handleMcpAppMessage = async (event: import('@/infrastructure/api/service-api/MCPAPI').McpAppMessageEvent) => {
       if (event.sessionId ? event.sessionId !== effectiveTargetSessionIdRef.current : Boolean(conversationScope)) return;
       const { requestId, params } = event;
@@ -2985,7 +2989,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     };
   }, [addContext, clearPendingLargePastes, conversationScope, currentImageCount, dispatchInput]);
 
-  React.useEffect(() => {
+  useOpeningPipelineEffect('ChatInput.passive.L2989', () => {
     const handleInsertContextTag = (event: Event) => {
       const customEvent = event as CustomEvent<{ context: any; sessionId?: string }>;
       if (customEvent.detail?.sessionId ? customEvent.detail.sessionId !== effectiveTargetSessionIdRef.current : Boolean(conversationScope)) return;
@@ -3024,7 +3028,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     },
   );
 
-  React.useEffect(() => {
+  useOpeningPipelineEffect('ChatInput.passive.L3028', () => {
     let cancelled = false;
 
     const publishPreference = (
@@ -3053,7 +3057,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     };
   }, []);
 
-  React.useEffect(() => {
+  useOpeningPipelineEffect('ChatInput.passive.L3057', () => {
     const handleSessionSwitched = (event: Event) => {
       const customEvent = event as CustomEvent<{ sessionId: string; mode: string }>;
       const { sessionId, mode } = customEvent.detail || {};
@@ -3071,7 +3075,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     };
   }, []);
 
-  React.useEffect(() => {
+  useOpeningPipelineEffect('ChatInput.passive.L3075', () => {
     const suppressedUserDefaultApplication = suppressNextUserDefaultModeApplicationRef.current;
     const userDefaultModeForResolution = suppressedUserDefaultApplication
       ? null
@@ -3109,7 +3113,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     userDefaultModeId,
   ]);
 
-  React.useEffect(() => {
+  useOpeningPipelineEffect('ChatInput.passive.L3113', () => {
     const queuedInput = derivedState?.queuedInput;
     if (!queuedInput?.trim() || !effectiveTargetSessionId) {
       return;
@@ -3139,7 +3143,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     dispatchInput,
   ]);
 
-  React.useEffect(() => {
+  useOpeningPipelineEffect('ChatInput.passive.L3143', () => {
     let removeOverlayMousedown0: (() => void) | undefined;
     const handleClickOutside = (event: MouseEvent) => {
       const target = event.target as Node;
@@ -3156,7 +3160,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     };
   }, [modeState.dropdownOpen]);
 
-  React.useEffect(() => {
+  useOpeningPipelineEffect('ChatInput.passive.L3160', () => {
     if (!effectiveTargetSessionId || !sessionBoundWorkspacePath) {
       return;
     }
@@ -4440,7 +4444,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   }, [effectiveTargetSessionId]);
 
   const [ownsChatKeyboard, setOwnsChatKeyboard] = useState(false);
-  useEffect(() => {
+  useOpeningPipelineEffect('ChatInput.passive.L4444', () => {
     const update = (event?: Event) => {
       const host = containerRef.current?.closest('[data-shortcut-scope="chat"]');
       const target = event?.target ?? document.activeElement;
@@ -4962,7 +4966,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     t,
   ]);
 
-  useEffect(() => {
+  useOpeningPipelineEffect('ChatInput.passive.L4966', () => {
     const inputElement = richTextInputRef.current;
     if (!inputElement) return;
     const handleImagePaste = (event: Event) => {
@@ -5020,13 +5024,13 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     onDragOver: setNativeFileDragOver,
   });
 
-  useEffect(() => {
+  useOpeningPipelineEffect('ChatInput.passive.L5024', () => {
     onFileDragOverChange?.(isSceneActive && !caps.transferInFlight
       && !isInterruptedTurnRecoveryInFlight && (nativeFileDragOver || contextFileDragOver));
   }, [onFileDragOverChange, isSceneActive, caps.transferInFlight,
     isInterruptedTurnRecoveryInFlight, nativeFileDragOver, contextFileDragOver]);
 
-  useEffect(() => () => onFileDragOverChange?.(false), [onFileDragOverChange]);
+  useOpeningPipelineEffect('ChatInput.passive.L5030', () => () => onFileDragOverChange?.(false), [onFileDragOverChange]);
 
   const handleRecoverInterruptedTurn = useCallback(async () => {
     const candidate = interruptedTurnRecovery;
@@ -5908,7 +5912,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     },
     [openScene]
   );
-  useEffect(() => {
+  useOpeningPipelineEffect('ChatInput.passive.L5912', () => {
     const dropZone = containerRef.current?.closest('.openbitfun-chat-input-drop-zone') as HTMLElement | null;
     const el = dropZone ?? containerRef.current;
     if (!el) return;

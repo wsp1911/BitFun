@@ -1,4 +1,7 @@
 import { requireSessionWorkspaceId } from '../utils/sessionWorkspace';
+// #region agent log
+import { logSessionOpeningElapsed } from '@/shared/utils/sessionOpeningDebug';
+// #endregion
 import { workspaceManager } from '@/infrastructure/services/business/workspaceManager';
 import { resolveLegacySessionWorkspace } from '@/infrastructure/api/service-api/legacyWorkspaceCompatibility';
 import { projectUserQuestionTiming } from '../utils/userQuestionTiming';
@@ -4327,6 +4330,7 @@ export class FlowChatStore {
   }
 
   public switchSession(sessionId: string): void {
+    const switchStartedAt = performance.now();
     const previousSessionId = this.state.activeSessionId;
     const targetSessionExists = this.state.sessions.has(sessionId);
     if (targetSessionExists && previousSessionId !== sessionId) {
@@ -4366,6 +4370,9 @@ export class FlowChatStore {
     if (targetSessionExists && previousSessionId !== sessionId) {
       this.scheduleActiveLegacyPartialSessionHistoryCompletion(sessionId, 'session-switch');
     }
+    // #region agent log
+    logSessionOpeningElapsed('E', 'FlowChatStore.switchSession', 'committed', switchStartedAt, { sessionId, previousSessionId });
+    // #endregion
   }
 
   /**

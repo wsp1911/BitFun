@@ -1,5 +1,11 @@
 # FlowChat History Paging
 
+An anchor settle opens only when there is an anchor to restore or a pending
+navigation recapture. Check that before reading resize geometry: session-opening
+traces measured a 534.7ms `scrollHeight` read, almost entirely forced layout,
+before returning with no anchor. Navigation deliberately releases its old anchor,
+so its pending recapture must still enter the settle path.
+
 The anchor renews its settle budget only when a correction reduces its measured
 residual (or reaches tolerance), or while a missing Turn is still awaited.
 An ineffective correction is remembered for that exact anchor/viewport geometry;

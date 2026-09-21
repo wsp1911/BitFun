@@ -36,6 +36,9 @@ import path from 'path-browserify';
 import { getActiveSurfaceScope, onSurfaceActivated, type SurfaceScope } from '@/infrastructure/peer-device/deviceSurface';
 import './Markdown.scss';
 import { useStreamingTextReveal } from './useStreamingTextReveal';
+// #region agent log
+import { OpeningRenderProbe } from '@/shared/utils/sessionOpeningDebug';
+// #endregion
 import { SessionMarkdownImage, type SessionImageReader } from './SessionMarkdownImage';
 import { rehypeSourceRange, type MarkdownSourceRange } from './rehypeSourceRange';
 
@@ -1711,6 +1714,8 @@ export const MarkdownRenderer = React.memo<MarkdownRendererProps>(({
 
   const wrapperClassName = `markdown-renderer ${className}`.trim();
   const basicMarkdownRenderer = (
+    // #region agent log
+    <OpeningRenderProbe group="markdown.parseAndRender">
     <ReactMarkdown
       remarkPlugins={[remarkGfm, remarkAutolinkBoundaries, remarkAutolinkInternalLinks]}
       rehypePlugins={[rehypeRaw, [rehypeSanitize, sanitizeSchema], [rehypeSourceRange, sourceRange]]}
@@ -1719,6 +1724,8 @@ export const MarkdownRenderer = React.memo<MarkdownRendererProps>(({
     >
       {markdownContent}
     </ReactMarkdown>
+    </OpeningRenderProbe>
+    // #endregion
   );
 
   return (

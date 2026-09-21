@@ -4,7 +4,10 @@ import { requireSessionWorkspaceId } from '../../utils/sessionWorkspace';
  * Uses virtual scrolling with Zustand and syncs legacy store state.
  */
 
-import React, { useMemo, useCallback, useRef, useEffect, useLayoutEffect, useState } from 'react';
+import React, { useMemo, useCallback, useRef, useState } from 'react';
+// #region agent log
+import { logSessionOpening, openingContainerQueryBypass, OpeningRenderProbe, recordOpeningPipeline, useOpeningPipelineEffect, useOpeningPipelineLayoutEffect } from '@/shared/utils/sessionOpeningDebug';
+// #endregion
 import { useTranslation } from 'react-i18next';
 import { useShortcut } from '@/infrastructure/hooks/useShortcut';
 import { FlowChatManager } from '@/flow_chat/services/FlowChatManager';
@@ -305,6 +308,30 @@ export const ModernFlowChatContainer: React.FC<ModernFlowChatContainerProps> = (
   const { t } = useTranslation('flow-chat');
   const canonicalVirtualItems = useVirtualItems();
   const activeSession = useActiveSession();
+  // #region agent log
+  // #region agent log
+  useOpeningPipelineLayoutEffect('container.layout.L312', () => {
+  // #endregion
+    logSessionOpening('L', 'ModernFlowChatContainer', 'layout effect', {
+      sessionId: activeSession?.sessionId, isViewportActive,
+      virtualItemCount: canonicalVirtualItems.length,
+    });
+  });
+  // #region agent log
+  useOpeningPipelineEffect('container.passive.L318', () => {
+  // #endregion
+    const sessionId = activeSession?.sessionId;
+    logSessionOpening('L', 'ModernFlowChatContainer', 'passive effect', { sessionId, isViewportActive });
+    let secondFrame = 0;
+    const firstFrame = requestAnimationFrame(() => {
+      logSessionOpening('L', 'ModernFlowChatContainer', 'first frame after effect', { sessionId });
+      secondFrame = requestAnimationFrame(() => {
+        logSessionOpening('L', 'ModernFlowChatContainer', 'second frame after effect', { sessionId });
+      });
+    });
+    return () => { cancelAnimationFrame(firstFrame); cancelAnimationFrame(secondFrame); };
+  }, [activeSession?.sessionId, isViewportActive]);
+  // #endregion
   const [historyPresentation, setHistoryPresentation] = useState<FlowChatHistoryPresentationState | null>(null);
   const [viewportIntent, setViewportIntent] = useState<FlowChatViewportIntent | null>(null);
   const [continuousProjectionSessionId, setContinuousProjectionSessionId] = useState<string | null>(null);
@@ -447,6 +474,9 @@ export const ModernFlowChatContainer: React.FC<ModernFlowChatContainerProps> = (
     isReadingTurnViewport && !renderedTranscriptReachesLatestTurn
   );
   const virtualItems = useMemo(() => {
+    // #region agent log
+    recordOpeningPipeline('container.projection.begin', { canonicalItems: canonicalVirtualItems.length });
+    // #endregion
     if (!activeSession || !renderedHistoryPresentation) {
       return canonicalVirtualItems;
     }
@@ -467,6 +497,10 @@ export const ModernFlowChatContainer: React.FC<ModernFlowChatContainerProps> = (
     isRenderingContinuousHistoryProjection,
     renderedHistoryPresentation,
   ]);
+
+  // #region agent log
+  recordOpeningPipeline('container.itemsReady.renderAttempt', { items: virtualItems.length });
+  // #endregion
 
   // The transcript reads the pending list to mark the tool cards that are
   // waiting; answering them belongs to the composer, which reads the same
@@ -500,7 +534,9 @@ export const ModernFlowChatContainer: React.FC<ModernFlowChatContainerProps> = (
   const restoreRevision = incomingViewTransfer?.revision ?? transferredRevision.current;
   // Consume only after commit, so an interrupted/StrictMode render cannot lose
   // the source's reading position before the destination has mounted.
-  useLayoutEffect(() => {
+  // #region agent log
+  useOpeningPipelineLayoutEffect('container.layout.L533', () => {
+  // #endregion
     if (!incomingViewTransfer || !activeSession?.sessionId) return;
     sessionViewportStateRef.current.set(activeSession.sessionId, incomingViewTransfer.state);
     transferredRevision.current = incomingViewTransfer.revision;
@@ -595,7 +631,9 @@ export const ModernFlowChatContainer: React.FC<ModernFlowChatContainerProps> = (
     acceptViewportSnapshot(snapshot);
   }, [acceptViewportSnapshot, restoreGateSessionId]);
 
-  useLayoutEffect(() => registerConversationReader({ surfaceId: surfaceScope.surfaceId, sessionId: activeSession?.sessionId ?? '' }, viewScope ? 'dock' : 'main', sessionId => {
+  // #region agent log
+  useOpeningPipelineLayoutEffect('container.layout.L628', () => registerConversationReader({ surfaceId: surfaceScope.surfaceId, sessionId: activeSession?.sessionId ?? '' }, viewScope ? 'dock' : 'main', sessionId => {
+  // #endregion
     const cached = sessionViewportStateRef.current.get(sessionId);
     if (sessionId !== activeSessionIdRef.current) return cached ?? null;
     return {
@@ -711,21 +749,27 @@ export const ModernFlowChatContainer: React.FC<ModernFlowChatContainerProps> = (
     updateViewportIntent,
   ]);
 
-  useEffect(() => {
+  // #region agent log
+  useOpeningPipelineEffect('container.passive.L744', () => {
+  // #endregion
     historyPresentationRef.current = historyPresentation;
     if (historyPresentation?.sessionId) {
       rememberSessionViewportState(historyPresentation.sessionId, { historyPresentation });
     }
   }, [historyPresentation, rememberSessionViewportState]);
 
-  useEffect(() => {
+  // #region agent log
+  useOpeningPipelineEffect('container.passive.L751', () => {
+  // #endregion
     const intent = viewportIntent;
     if (intent?.sessionId) {
       rememberSessionViewportState(intent.sessionId, { viewportIntent: intent });
     }
   }, [rememberSessionViewportState, viewportIntent]);
 
-  useLayoutEffect(() => {
+  // #region agent log
+  useOpeningPipelineLayoutEffect('container.layout.L758', () => {
+  // #endregion
     const sessionId = activeSession?.sessionId;
     const previousSessionId = activeSessionIdRef.current;
     if (previousSessionId && previousSessionId !== sessionId) {
@@ -779,7 +823,9 @@ export const ModernFlowChatContainer: React.FC<ModernFlowChatContainerProps> = (
     }
   }, [activeSession?.sessionId, rememberSessionViewportState, updateViewportIntent, restoreRevision]);
 
-  useEffect(() => {
+  // #region agent log
+  useOpeningPipelineEffect('container.passive.L812', () => {
+  // #endregion
     const retainedSessionId = continuousProjectionSessionId;
     if (!retainedSessionId) {
       return;
@@ -803,7 +849,9 @@ export const ModernFlowChatContainer: React.FC<ModernFlowChatContainerProps> = (
     continuousProjectionSessionId,
   ]);
 
-  useEffect(() => {
+  // #region agent log
+  useOpeningPipelineEffect('container.passive.L836', () => {
+  // #endregion
     if (!activeHistoryPresentation || activeHistoryPresentationFitsSession) {
       return;
     }
@@ -831,7 +879,9 @@ export const ModernFlowChatContainer: React.FC<ModernFlowChatContainerProps> = (
     updateViewportIntent,
   ]);
 
-  useEffect(() => {
+  // #region agent log
+  useOpeningPipelineEffect('container.passive.L864', () => {
+  // #endregion
     const handleHistorySessionOpenIntent = (event: Event) => {
       const detail = (event as CustomEvent<HistorySessionOpenIntentDetail>).detail;
       if (!detail?.sessionId) {
@@ -853,14 +903,18 @@ export const ModernFlowChatContainer: React.FC<ModernFlowChatContainerProps> = (
     };
   }, []);
 
-  useEffect(() => subscribeHistorySessionOpenTransition(() => {
+  // #region agent log
+  useOpeningPipelineEffect('container.passive.L886', () => subscribeHistorySessionOpenTransition(() => {
+  // #endregion
     const transition = getHistorySessionOpenTransitionSnapshot();
     setPendingHistoryOpenSession(current => (
       current && transition?.sessionId !== current.sessionId ? null : current
     ));
   }), []);
 
-  useEffect(() => {
+  // #region agent log
+  useOpeningPipelineEffect('container.passive.L893', () => {
+  // #endregion
     if (!pendingHistoryOpenSession) {
       return;
     }
@@ -880,7 +934,9 @@ export const ModernFlowChatContainer: React.FC<ModernFlowChatContainerProps> = (
     };
   }, [pendingHistoryOpenSession]);
 
-  useEffect(() => {
+  // #region agent log
+  useOpeningPipelineEffect('container.passive.L913', () => {
+  // #endregion
     if (!isPendingHistoryOpenActiveSession) {
       return;
     }
@@ -1189,7 +1245,9 @@ export const ModernFlowChatContainer: React.FC<ModernFlowChatContainerProps> = (
     showHistoryOpenIntentOverlay;
   const showHistoryLoadingLayer =
     !showHistoryOpenIntentOverlay && !showFailedHistoryPlaceholder && showHistoryPlaceholder;
-  useEffect(() => {
+  // #region agent log
+  useOpeningPipelineEffect('container.passive.L1222', () => {
+  // #endregion
     if (!showHistoryLoadingLayer || !activeSession?.sessionId) {
       return;
     }
@@ -1278,15 +1336,21 @@ export const ModernFlowChatContainer: React.FC<ModernFlowChatContainerProps> = (
       totalTurns: sessionTotalTurnCount,
     };
   }, [absoluteRenderedTurnSummaryById, navigationVisibleTurnInfo, sessionTotalTurnCount]);
-  useEffect(() => {
+  // #region agent log
+  useOpeningPipelineEffect('container.passive.L1311', () => {
+  // #endregion
     visibleTurnInfoRef.current = visibleTurnInfo;
   }, [visibleTurnInfo]);
 
-  useEffect(() => {
+  // #region agent log
+  useOpeningPipelineEffect('container.passive.L1315', () => {
+  // #endregion
     turnSummariesRef.current = renderedTurnSummaries;
   }, [renderedTurnSummaries]);
 
-  useEffect(() => {
+  // #region agent log
+  useOpeningPipelineEffect('container.passive.L1319', () => {
+  // #endregion
     turnRailTurnIdsRef.current = new Set(
       turnRailItems.flatMap(turn => turn.turnId ? [turn.turnId] : []),
     );
@@ -1300,14 +1364,18 @@ export const ModernFlowChatContainer: React.FC<ModernFlowChatContainerProps> = (
       behavior: 'auto',
     }) ?? 'rejected';
   }, [isViewportActive]);
-  useEffect(() => {
+  // #region agent log
+  useOpeningPipelineEffect('container.passive.L1333', () => {
+  // #endregion
     requestTurnNavigationRef.current = requestTurnNavigation;
   }, [requestTurnNavigation]);
   const handleVirtualListUserScrollIntent = useCallback(() => {
     setQueuedTurnNavigation(null);
   }, []);
 
-  useEffect(() => {
+  // #region agent log
+  useOpeningPipelineEffect('container.passive.L1340', () => {
+  // #endregion
     if (!isViewportActive || !queuedTurnNavigation) return;
 
     let cancelled = false;
@@ -1375,19 +1443,25 @@ export const ModernFlowChatContainer: React.FC<ModernFlowChatContainerProps> = (
     renderedTurnSummaries.length,
   ]);
 
-  useLayoutEffect(() => {
+  // #region agent log
+  useOpeningPipelineLayoutEffect('container.layout.L1408', () => {
+  // #endregion
     autoTailTurnKeyRef.current = null;
     releasedHistoryCompletionKeyRef.current = null;
     searchFullHistorySessionIdRef.current = null;
   }, [activeSession?.sessionId]);
 
-  useEffect(() => {
+  // #region agent log
+  useOpeningPipelineEffect('container.passive.L1414', () => {
+  // #endregion
     setHistoryInitialContentReadyKey(null);
     setHistoryInitialContentPostPaintKey(null);
     setQueuedTurnNavigation(null);
   }, [activeSession?.sessionId]);
 
-  useLayoutEffect(() => {
+  // #region agent log
+  useOpeningPipelineLayoutEffect('container.layout.L1420', () => {
+  // #endregion
     const sessionId = activeSession?.sessionId;
     const latestTurnKey = sessionId && latestTurnId
       ? `${sessionId}:${latestTurnId}:${turnSummaries.length}`
@@ -1440,7 +1514,9 @@ export const ModernFlowChatContainer: React.FC<ModernFlowChatContainerProps> = (
     viewportRestorePendingSessionId,
   ]);
 
-  useEffect(() => {
+  // #region agent log
+  useOpeningPipelineEffect('container.passive.L1473', () => {
+  // #endregion
     const sessionId = activeSession?.sessionId;
     if (
       !isViewportActive ||
@@ -1528,7 +1604,9 @@ export const ModernFlowChatContainer: React.FC<ModernFlowChatContainerProps> = (
     turnSummaries.length,
   ]);
 
-  useEffect(() => {
+  // #region agent log
+  useOpeningPipelineEffect('container.passive.L1561', () => {
+  // #endregion
     if (searchCurrentMatchVirtualItemIndex < 0 || !searchQuery.trim()) {
       virtualListRef.current?.clearSearchMatch();
       return;
@@ -1635,7 +1713,9 @@ export const ModernFlowChatContainer: React.FC<ModernFlowChatContainerProps> = (
    * edge-triggered; this effect is only the plumbing.
    */
   const tailAnchoredWindowEndRef = useRef<number | null>(null);
-  useEffect(() => {
+  // #region agent log
+  useOpeningPipelineEffect('container.passive.L1668', () => {
+  // #endregion
     const sessionId = activeSession?.sessionId;
     const windowEndOrdinalExclusive = sessionId
       ? renderedHistoryPresentation?.range.endOrdinalExclusive ?? null
@@ -1700,7 +1780,9 @@ export const ModernFlowChatContainer: React.FC<ModernFlowChatContainerProps> = (
    * comes into the transcript, and follow-output pins it to the viewport top
    * the way it pins any newly submitted Turn.
    */
-  useEffect(() => {
+  // #region agent log
+  useOpeningPipelineEffect('container.passive.L1733', () => {
+  // #endregion
     const handleMessageSubmitted = (event: Event) => {
       const { sessionId } = (event as CustomEvent<FlowChatMessageSubmittedRequest>).detail ?? {};
       const reaches = transcriptReachesLatestTurn({
@@ -2293,7 +2375,9 @@ export const ModernFlowChatContainer: React.FC<ModernFlowChatContainerProps> = (
     return request;
   }, [applyHistoryPresentation]);
 
-  useEffect(() => {
+  // #region agent log
+  useOpeningPipelineEffect('container.passive.L2326', () => {
+  // #endregion
     if (!activeSession?.sessionId) {
       return;
     }
@@ -2303,7 +2387,9 @@ export const ModernFlowChatContainer: React.FC<ModernFlowChatContainerProps> = (
       .reconcileParent(flowChatStore.getState(), activeSession.sessionId);
   }, [activeSession?.dialogTurns.length, activeSession?.historyState, activeSession?.sessionId]);
 
-  useEffect(() => {
+  // #region agent log
+  useOpeningPipelineEffect('container.passive.L2336', () => {
+  // #endregion
     const agentSessionId = activeSession?.sessionId;
     if (!agentSessionId || shouldDeferBackgroundCommandSnapshot) {
       return;
@@ -2366,7 +2452,9 @@ export const ModernFlowChatContainer: React.FC<ModernFlowChatContainerProps> = (
     hasActiveSessionLineageDescendants(activeSession?.sessionId, flowChatStore.getState().sessions),
   );
 
-  useEffect(() => {
+  // #region agent log
+  useOpeningPipelineEffect('container.passive.L2399', () => {
+  // #endregion
     const rootSessionId = activeSession?.sessionId;
     const updateActivity = (sessions: Map<string, Session>) => {
       setHasActiveSessionTreeDescendants(
@@ -2381,7 +2469,9 @@ export const ModernFlowChatContainer: React.FC<ModernFlowChatContainerProps> = (
     );
   }, [activeSession?.sessionId]);
 
-  useEffect(() => {
+  // #region agent log
+  useOpeningPipelineEffect('container.passive.L2414', () => {
+  // #endregion
     if (stoppingBackgroundCommandIds.size === 0) {
       return;
     }
@@ -2688,6 +2778,7 @@ export const ModernFlowChatContainer: React.FC<ModernFlowChatContainerProps> = (
 
         <div
           className="modern-flowchat-container__messages"
+          data-opening-query-bypass={openingContainerQueryBypass ? 'true' : undefined}
           data-testid="flowchat-messages"
           data-openbitfun-component="modern-flow-chat"
           data-openbitfun-part="messages"
@@ -2741,6 +2832,7 @@ export const ModernFlowChatContainer: React.FC<ModernFlowChatContainerProps> = (
               )
             ) : (
               <>
+                <OpeningRenderProbe group="list">
                 <VirtualMessageList
                   ref={virtualListRef}
                   items={virtualItems}
@@ -2757,6 +2849,7 @@ export const ModernFlowChatContainer: React.FC<ModernFlowChatContainerProps> = (
                   onViewportRestoreSettled={handleViewportRestoreSettled}
                   initialViewportSnapshot={activeSessionViewportSnapshot}
                 />
+                </OpeningRenderProbe>
               </>
             )}
             {virtualItems.length > 0 ? (

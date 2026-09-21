@@ -47,6 +47,7 @@ import {
   abandonSettingsDraftsForContextSwitch,
   requestAllSettingsDraftsExit,
 } from '@/infrastructure/config/settingsDraftRegistry';
+import { logSessionOpening, sessionOpeningNow } from '@/shared/utils/sessionOpeningDebug';
 
 function getSceneDefOrMiniapp(id: SceneTabId) {
   const d = getSceneDef(id);
@@ -180,6 +181,7 @@ export const useSceneStore = create<SceneState>((set, get) => ({
   navigationSequence: 0,
 
   openScene: (requestedId) => {
+    const startedAt = sessionOpeningNow();
     if (requestedId === 'file-viewer') {
       useNavSceneStore.getState().openNavScene('file-viewer');
       return;
@@ -187,6 +189,7 @@ export const useSceneStore = create<SceneState>((set, get) => ({
     const target = requestedId === 'session' ? sessionNavigation?.current() : undefined;
     if (requestedId === 'session' && !target) return;
     openSceneTarget(target ? getSessionSceneTabId(target) : requestedId, target ?? undefined);
+    logSessionOpening('H', 'sceneStore.openScene', 'requested', { requestedId, durationMs: Math.round((sessionOpeningNow() - startedAt) * 10) / 10 });
   },
 
   openSessionScene: (target, options) => openSceneTarget(getSessionSceneTabId(target), target, options),
@@ -400,18 +403,29 @@ function navigateToScene(id: SceneTabId | null, commit: () => void, session?: Se
   const request = ++navigationRequest;
   const adapter = sessionNavigation;
   const target = session ?? useSceneStore.getState().openTabs.find(tab => tab.id === id)?.session;
+  // #region agent log
+  const navigationStartedAt = sessionOpeningNow();
+  const commitWithProbe = () => {
+    const commitStartedAt = sessionOpeningNow();
+    commit();
+    logSessionOpening('H', 'sceneStore.navigateToScene', 'committed', {
+      sessionId: target?.sessionId, durationMs: sessionOpeningNow() - commitStartedAt,
+      navigationMs: sessionOpeningNow() - navigationStartedAt,
+    });
+  };
+  // #endregion
   const ownsRequest = () => request === navigationRequest && adapter === sessionNavigation;
   const isCurrent = () => ownsRequest() && (canCommit?.() ?? true);
   if (!target || !adapter || (!hadPendingNavigation && adapter.isActive(target))) {
     if (useSceneStore.getState().pendingTabId !== null) useSceneStore.setState({ pendingTabId: null });
-    commit();
+    commitWithProbe();
     return Promise.resolve(true);
   }
 
   useSceneStore.setState({ pendingTabId: id });
   return adapter.activate(target, isCurrent).then(activated => {
     if (!activated || !isCurrent()) return false;
-    commit();
+    commitWithProbe();
     return true;
   }).finally(() => {
     if (ownsRequest()) useSceneStore.setState({ pendingTabId: null });

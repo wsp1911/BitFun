@@ -1,5 +1,8 @@
 import { useDeviceDirectory, resolveDeviceName } from '@/infrastructure/account/deviceDirectory';
 import { requireSessionWorkspaceId } from '@/flow_chat/utils/sessionWorkspace';
+// #region agent log
+import { beginSessionOpening, logSessionOpening } from '@/shared/utils/sessionOpeningDebug';
+// #endregion
 /**
  * SessionsSection — inline accordion content for the "Sessions" nav item.
  *
@@ -1054,6 +1057,9 @@ const SessionsSection: React.FC<SessionsSectionProps> = ({
   const handleSwitch = useCallback(
     async (sessionId: string) => {
       if (editingSessionId) return;
+      // #region agent log
+      beginSessionOpening(sessionId, 'click');
+      // #endregion
       try {
         // Opening a row explicitly acknowledges its current unread result,
         // including an already-active session or an unopened history record.
@@ -1066,6 +1072,9 @@ const SessionsSection: React.FC<SessionsSectionProps> = ({
           flowChatManager.preloadHistoricalSessionForOpen(sessionId);
         }
         const relationship = resolveSessionRelationship(session);
+        // #region agent log
+        logSessionOpening('I', 'SessionsSection.handleSwitch', 'preload dispatched', { sessionId });
+        // #endregion
         const parentSessionId = relationship.parentSessionId;
         const matchingScope = session && workspaceScopes?.find(scope => sessionBelongsToWorkspaceNavRow(session, scope.workspaceId));
         const targetWorkspaceId = matchingScope?.workspaceId ?? workspaceId;
@@ -1145,7 +1154,13 @@ const SessionsSection: React.FC<SessionsSectionProps> = ({
         return;
       }
 
+      // #region agent log
+      beginSessionOpening(session.sessionId, 'pointerdown', event.timeStamp);
+      // #endregion
       const historyOpenIntentDispatch = dispatchHistoryOpenIntentForSession(session, 'pointerdown');
+      // #region agent log
+      logSessionOpening('I', 'SessionsSection.pointerdown', 'intent dispatched', { sessionId: session.sessionId });
+      // #endregion
       if (historyOpenIntentDispatch !== 'none') {
         flowChatManager.preloadHistoricalSessionForOpen(session.sessionId);
       }

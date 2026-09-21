@@ -24,6 +24,7 @@ import {
 import { createAbsoluteSessionTurnIndexResolver } from '../utils/flowChatTurnOrdinal';
 import { parseDeepResearchContent } from '../deep-research/deepResearchProtocol';
 import { collectCanvasArtifactToolItems } from '../utils/canvasArtifactPresentation';
+import { logSessionOpening, sessionOpeningNow, recordOpeningPipeline } from '@/shared/utils/sessionOpeningDebug';
 
 /**
  * Explore group statistics (merged computed stats)
@@ -646,7 +647,14 @@ export const createModernFlowChatStore = (initialSession?: Session | null) => cr
     }),
 
     setActiveSession: (session) => {
+      const startedAt = sessionOpeningNow();
+      // #region agent log
+      recordOpeningPipeline('store.projection.begin');
+      // #endregion
       const items = sessionToVirtualItems(session);
+      // #region agent log
+      recordOpeningPipeline('store.projection.end', { items: items.length, durationMs: sessionOpeningNow() - startedAt });
+      // #endregion
       set((state) => {
         if (state.activeSession?.sessionId !== session?.sessionId) {
           state.visibleTurnInfo = null;
@@ -654,6 +662,10 @@ export const createModernFlowChatStore = (initialSession?: Session | null) => cr
         state.activeSession = session;
         state.virtualItems = items;
       });
+      // #region agent log
+      recordOpeningPipeline('store.publish.end', { items: items.length });
+      // #endregion
+      logSessionOpening('G', 'modernFlowChatStore.setActiveSession', 'projected', { sessionId: session?.sessionId ?? null, virtualItemCount: items.length, durationMs: Math.round((sessionOpeningNow() - startedAt) * 10) / 10 });
     },
 
     updateVirtualItems: () => {

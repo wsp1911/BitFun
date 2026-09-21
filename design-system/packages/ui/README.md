@@ -189,6 +189,11 @@ overrides that text; `title=""` opts out when a surrounding native title owns th
 content. An explicit enclosing `Tooltip` suppresses automatic nested tooltips.
 Do not use marquee as the sole way to access information on touch surfaces.
 
+Overflow measurements are deferred and batched per window: all pending labels
+read their dimensions before publishing state. Initial clipping still comes from
+CSS; overflow-dependent fades, marquees and tooltips activate after measurement.
+Resize, content and font changes schedule a fresh measurement through the same queue.
+
 Multi-line descriptions should normally wrap. Editable fields, source code,
 structured paths that need to preserve their suffix, and native controls keep
 their appropriate text treatment instead of receiving a blanket fade rule.

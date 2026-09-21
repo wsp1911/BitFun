@@ -4,6 +4,9 @@
  */
 
 import React from 'react';
+// #region agent log
+import { OpeningRenderProbe, recordOpeningPipeline } from '@/shared/utils/sessionOpeningDebug';
+// #endregion
 import { Loader2 } from 'lucide-react';
 import type { VirtualItem } from '../../store/modernFlowChatStore';
 import { UserMessageItem } from './UserMessageItem';
@@ -42,6 +45,9 @@ export const VirtualItemRenderer = React.memo<VirtualItemRendererProps>(
     const isSearchCurrent = Boolean(currentMatch);
     const [wrapper, setWrapper] = React.useState<HTMLDivElement | null>(null);
     const rowRef = React.useCallback((element: HTMLDivElement | null) => {
+      // #region agent log
+      if (element) recordOpeningPipeline('row.ref.beforeMeasure', { index: Number(element.dataset.virtualIndex) });
+      // #endregion
       setWrapper(element);
       measureRef?.(element);
     }, [measureRef]);
@@ -137,7 +143,11 @@ export const VirtualItemRenderer = React.memo<VirtualItemRendererProps>(
         data-virtual-index={index}
         data-item-index={index}
       >
-        {content || <div style={{ minHeight: '1px' }} />}
+        {/* #region agent log */}
+        <OpeningRenderProbe group={`row:${item.type}`}>
+          {content || <div style={{ minHeight: '1px' }} />}
+        </OpeningRenderProbe>
+        {/* #endregion */}
         <ConversationExcerptMarkers wrapper={wrapper} turnId={item.turnId} />
         <span
           aria-hidden="true"

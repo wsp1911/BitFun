@@ -1,3 +1,6 @@
+// #region agent log
+import { recordOpeningPipeline, useOpeningPipelineEffect, useOpeningPipelineLayoutEffect } from '@/shared/utils/sessionOpeningDebug';
+// #endregion
 import { OverflowText } from '@openbitfun/ui';
 /**
  * Main application layout.
@@ -9,7 +12,7 @@ import { OverflowText } from '@openbitfun/ui';
  * TitleBar removed; window controls moved to NavBar, dialogs managed here.
  */
 
-import React, { useState, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useContext, lazy, Suspense } from 'react';
+import React, { useState, useCallback, useMemo, useRef, useContext, lazy, Suspense } from 'react';
 import { useWorkspaceContext } from '../../infrastructure/contexts/WorkspaceContext';
 import { useWindowControls } from '../hooks/useWindowControls';
 import { isWindowFullscreenShortcut } from '../hooks/windowFullscreenShortcut';
@@ -81,7 +84,8 @@ interface WindowModeHint {
 }
 
 const AppLayout: React.FC<AppLayoutProps> = ({ className = '' }) => {
-  useLayoutEffect(startSessionSceneLifecycle, []);
+  recordOpeningPipeline('AppLayout.renderAttempt');
+  useOpeningPipelineLayoutEffect('AppLayout.layout.L85', startSessionSceneLifecycle, []);
   const { t } = useI18n('components');
   const { t: tCommon } = useI18n('common');
   const currentAppearance = useAppearance().current;
@@ -144,7 +148,7 @@ const AppLayout: React.FC<AppLayoutProps> = ({ className = '' }) => {
     }, 2200);
   }, [isMacOS, t]);
 
-  useEffect(() => {
+  useOpeningPipelineEffect('AppLayout.passive.L148', () => {
     return () => {
       if (windowModeHintTimerRef.current) {
         window.clearTimeout(windowModeHintTimerRef.current);
@@ -153,7 +157,7 @@ const AppLayout: React.FC<AppLayoutProps> = ({ className = '' }) => {
   }, []);
 
   // ── Load user keybinding overrides from config on startup ────────────────
-  useEffect(() => {
+  useOpeningPipelineEffect('AppLayout.passive.L157', () => {
     const load = async () => {
       try {
         const raw = await configManager.getOptionalConfig('app.keybindings');
@@ -171,7 +175,7 @@ const AppLayout: React.FC<AppLayoutProps> = ({ className = '' }) => {
     return () => unsubscribe();
   }, []);
 
-  useEffect(() => {
+  useOpeningPipelineEffect('AppLayout.passive.L175', () => {
     if (!canUseNativeWindowControls || isToolbarMode) return;
 
     const handleSystemFullscreenShortcut = (event: KeyboardEvent) => {
@@ -201,7 +205,7 @@ const AppLayout: React.FC<AppLayoutProps> = ({ className = '' }) => {
 
   // Auto-open last workspace on startup
   const autoOpenAttemptedRef = useRef(false);
-  useEffect(() => {
+  useOpeningPipelineEffect('AppLayout.passive.L205', () => {
     if (autoOpenAttemptedRef.current || loading) return;
     if (!hasWorkspace && recentWorkspaces.length > 0) {
       autoOpenAttemptedRef.current = true;
@@ -250,7 +254,7 @@ const AppLayout: React.FC<AppLayoutProps> = ({ className = '' }) => {
   }, [openWorkspace]);
 
   // Listen for nav-panel events dispatched by the workspace area
-  useEffect(() => {
+  useOpeningPipelineEffect('AppLayout.passive.L254', () => {
     const onOpenProject = () => { void handleOpenProject(); };
     const onNewProject = () => handleNewProject();
     window.addEventListener('nav:open-project', onOpenProject);
@@ -264,7 +268,7 @@ const AppLayout: React.FC<AppLayoutProps> = ({ className = '' }) => {
   }, [handleNewProject, handleOpenProject, handleShowAbout]);
 
   // macOS native menubar events (previously in TitleBar)
-  useEffect(() => {
+  useOpeningPipelineEffect('AppLayout.passive.L268', () => {
     if (!isMacOS) return;
     let unlistenFns: Array<() => void> = [];
     void (async () => {
@@ -289,7 +293,7 @@ const AppLayout: React.FC<AppLayoutProps> = ({ className = '' }) => {
   }, [isMacOS, openWorkspace, handleNewProject, handleShowAbout, t]);
 
   // Initialize FlowChatManager
-  React.useEffect(() => {
+  useOpeningPipelineEffect('AppLayout.passive.L293', () => {
     let cancelled = false;
     const initializeFlowChat = async () => {
       if (!currentWorkspace?.rootPath) return;
@@ -418,7 +422,7 @@ const AppLayout: React.FC<AppLayoutProps> = ({ className = '' }) => {
   // `saveAllInProgressTurns` settles in-flight dialog turns for disk persistence, which
   // clears Agent companion desktop bubbles until the next chat update—so only run it
   // immediately before we actually exit the process.
-  React.useEffect(() => {
+  useOpeningPipelineEffect('AppLayout.passive.L422', () => {
     let unlistenFn: (() => void) | null = null;
     let handlingClose = false;
 
@@ -504,7 +508,7 @@ const AppLayout: React.FC<AppLayoutProps> = ({ className = '' }) => {
   }, [canUseNativeWindowControls, isMacOS, tCommon]);
 
   // Handle switch-to-files-panel event
-  React.useEffect(() => {
+  useOpeningPipelineEffect('AppLayout.passive.L508', () => {
     const handleSwitchToFilesPanel = () => {
       switchLeftPanelTab('files');
       if (state.layout.leftPanelCollapsed) toggleLeftPanel();
@@ -518,7 +522,7 @@ const AppLayout: React.FC<AppLayoutProps> = ({ className = '' }) => {
   }, [state.layout.leftPanelCollapsed, state.layout.rightPanelCollapsed, switchLeftPanelTab, toggleLeftPanel, toggleRightPanel]);
 
   // Toolbar send message
-  React.useEffect(() => {
+  useOpeningPipelineEffect('AppLayout.passive.L522', () => {
     const handleToolbarSendMessage = async (event: Event) => {
       const customEvent = event as CustomEvent<{ message: string; sessionId: string }>;
       const { message, sessionId } = customEvent.detail;
@@ -561,7 +565,7 @@ const AppLayout: React.FC<AppLayoutProps> = ({ className = '' }) => {
   );
 
   // Toolbar cancel task
-  React.useEffect(() => {
+  useOpeningPipelineEffect('AppLayout.passive.L565', () => {
     const handleToolbarCancelTask = async () => {
       try {
         const flowChatManager = FlowChatManager.getInstance();
@@ -590,7 +594,7 @@ const AppLayout: React.FC<AppLayoutProps> = ({ className = '' }) => {
     }
   }, [currentWorkspace]);
 
-  React.useEffect(() => {
+  useOpeningPipelineEffect('AppLayout.passive.L594', () => {
     const handler = () => {
       void handleCreateFlowChatSession();
     };
@@ -598,7 +602,7 @@ const AppLayout: React.FC<AppLayoutProps> = ({ className = '' }) => {
     return () => window.removeEventListener('toolbar-create-session', handler);
   }, [handleCreateFlowChatSession]);
 
-  React.useEffect(() => {
+  useOpeningPipelineEffect('AppLayout.passive.L602', () => {
     const handler = (e: Event) => {
       const clientId = (e as CustomEvent<{ clientId?: string }>).detail?.clientId?.trim();
       if (!clientId) return;
@@ -612,7 +616,7 @@ const AppLayout: React.FC<AppLayoutProps> = ({ className = '' }) => {
     return () => window.removeEventListener('openbitfun:create-acp-session', handler);
   }, [currentWorkspace]);
 
-  React.useEffect(() => {
+  useOpeningPipelineEffect('AppLayout.passive.L616', () => {
     const handler = (event: Event) => {
       const detail = (event as CustomEvent<AcpSessionCreationEventDetail>).detail;
       const clientId = detail?.clientId?.trim() || 'ACP';
@@ -642,7 +646,7 @@ const AppLayout: React.FC<AppLayoutProps> = ({ className = '' }) => {
   }, [tCommon]);
 
   // Global drag-and-drop
-  React.useEffect(() => {
+  useOpeningPipelineEffect('AppLayout.passive.L646', () => {
     const handleDragStart = (e: DragEvent) => {
       if (e.dataTransfer) {
         if (e.dataTransfer.types.length === 0) e.dataTransfer.setData('text/plain', 'dragging');

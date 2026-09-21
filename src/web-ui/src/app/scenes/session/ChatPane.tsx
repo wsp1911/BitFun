@@ -1,3 +1,6 @@
+// #region agent log
+import { recordOpeningPipeline, useOpeningPipelineEffect } from '@/shared/utils/sessionOpeningDebug';
+// #endregion
 /**
  * ChatPane — AI Agent scene left pane.
  * Hosts FlowChat conversation panel.
@@ -5,7 +8,10 @@
  * Renamed from panels/CenterPanel. All logic preserved.
  */
 
-import React, { useCallback, memo, useEffect, useRef, useState, useMemo, useContext } from 'react';
+import React, { useCallback, memo, useRef, useState, useMemo, useContext } from 'react';
+// #region agent log
+import { profileSessionOpening } from '@/shared/utils/sessionOpeningDebug';
+// #endregion
 import { ChatFileDropOverlay } from './ChatFileDropOverlay';
 import type { FileDropPreview, FileDropPosition } from '@/shared/types/fileDropPreview';
 import { ModernFlowChatContainer as FlowChatContainer } from '../../../flow_chat/components/modern/ModernFlowChatContainer';
@@ -67,6 +73,7 @@ const ChatPaneInner: React.FC<ChatPaneProps> = ({
   emptyState,
   chatInputRegistration,
 }) => {
+  recordOpeningPipeline('ChatPane.renderAttempt');
   const isSceneActive = useContext(ConversationTextVisibilityContext) && hostActive;
   const addTab = useCanvasStore(state => state.addTab);
   const fileDropTargetRef = useRef<HTMLDivElement>(null);
@@ -116,7 +123,7 @@ const ChatPaneInner: React.FC<ChatPaneProps> = ({
     });
   }, [workspacePath, sessionRef]);
 
-  useEffect(() => {
+  useOpeningPipelineEffect('ChatPane.passive.L123', () => {
     return () => {
       deferredTaskDetailTimersRef.current.forEach(timerId => window.clearTimeout(timerId));
       deferredTaskDetailTimersRef.current = [];
@@ -191,6 +198,8 @@ const ChatPaneInner: React.FC<ChatPaneProps> = ({
       data-fullscreen={isFullscreen}
       data-testid="chat-pane"
     >
+      {/* #region agent log */}
+      <React.Profiler id="ChatPane.transcript" onRender={profileSessionOpening}>
       <FlowChatContainer
         className="openbitfun-chat-pane__chat-container"
         isViewportActive={isSceneActive}
@@ -203,6 +212,8 @@ const ChatPaneInner: React.FC<ChatPaneProps> = ({
         onFileViewRequest={handleFileViewRequest}
         onTabOpen={handleTabOpen}
       />
+      </React.Profiler>
+      {/* #endregion */}
       {showChatInput && (
         <ChatInput
           fileDropTargetRef={fileDropTargetRef}

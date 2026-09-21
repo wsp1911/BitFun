@@ -7,6 +7,7 @@
 import { flowChatStore } from '../store/FlowChatStore';
 import { useModernFlowChatStore } from '../store/modernFlowChatStore';
 import type { Session } from '../types/flow-chat';
+import { logSessionOpening, sessionOpeningNow } from '@/shared/utils/sessionOpeningDebug';
 
 function isSessionAlreadySynced(
   sessionId: string,
@@ -39,10 +40,12 @@ function hasRenderableContent(session: Session): boolean {
  * Sync session data to new Store
  */
 export function syncSessionToModernStore(sessionId: string): void {
+  const startedAt = sessionOpeningNow();
   // An async opener may finish after selection changed or the session was
   // removed. Presentation sync must never become another selection writer.
   if (flowChatStore.getState().activeSessionId !== sessionId) return;
   syncActiveSessionToModernStore();
+  logSessionOpening('F', 'storeSync.syncSessionToModernStore', 'finished', { sessionId, durationMs: Math.round((sessionOpeningNow() - startedAt) * 10) / 10 });
 }
 
 function syncActiveSessionToModernStore(): void {

@@ -471,7 +471,7 @@ describe('useFlowChatViewportAnchor', () => {
     expect(scroller.scrollTop).toBe(1_140);
   });
 
-  it('takes a new reading position from where a navigation landed', () => {
+  it.each(['items', 'resize', 'snapshot', 'resume'] as const)('recaptures the navigation destination on %s', (source) => {
     /*
      * A navigation is not a displacement, and standing down for it only
      * postpones the correction. Measured over four clicks on one Turn: the aim
@@ -492,7 +492,7 @@ describe('useFlowChatViewportAnchor', () => {
     // The aim lands, and the commit that renders it opens a settle window.
     scroller.scrollTop = 287;
     layoutTurns({ 'turn-1': 300, 'turn-9': 2295 });
-    api.openSettleWindow();
+    api.openSettleWindow(source);
 
     // A late measurement moves the transcript under the Turn they navigated to,
     // and the correction is that displacement — not the jump.
@@ -551,16 +551,20 @@ describe('useFlowChatViewportAnchor', () => {
     expect(frames).toHaveLength(1);
   });
 
-  it('winds the settle window down once there is no anchor to keep', () => {
-    // No anchor was ever captured, so every frame is a wasted one and the
-    // window has to end on its own rather than run forever.
-    api.openSettleWindow();
-    let ranFrames = 0;
-    while (frames.length > 0 && ranFrames < 100) {
-      runFrame();
-      ranFrames += 1;
+  it.each(['items', 'resize', 'snapshot', 'resume'] as const)('skips layout and frames without an anchor on %s', (source) => {
+    layoutTurns({ 'turn-3': 100 });
+    const readGeometry = vi.fn(() => 500);
+    for (const property of ['scrollHeight', 'clientWidth', 'clientHeight', 'scrollTop']) {
+      Object.defineProperty(scroller, property, { configurable: true, get: readGeometry });
     }
-    expect(ranFrames).toBeGreaterThan(1);
+    const readRect = vi.spyOn(scroller, 'getBoundingClientRect');
+
+    api.openSettleWindow(source);
+    api.openSettleWindow(source);
+
+    expect(readGeometry).not.toHaveBeenCalled();
+    expect(readRect).not.toHaveBeenCalled();
+    expect(requestAnimationFrame).not.toHaveBeenCalled();
     expect(frames).toHaveLength(0);
   });
 

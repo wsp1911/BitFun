@@ -4,7 +4,6 @@ import {
   useCallback,
   useContext,
   useEffect,
-  useLayoutEffect,
   useRef,
   useState,
   type CSSProperties,
@@ -14,11 +13,8 @@ import {
 import { classNames } from "../../internal/classNames";
 import { TooltipTriggerContext } from "../../internal/tooltipTriggerContext";
 import { Tooltip } from "../../components/Tooltip";
+import { observeOverflowText, type OverflowMeasurement } from "./overflowMeasurement";
 import styles from "./OverflowText.module.css";
-
-const useIsomorphicLayoutEffect = typeof window === "undefined"
-  ? useEffect
-  : useLayoutEffect;
 
 function assignRef<T>(ref: ForwardedRef<T>, value: T | null) {
   if (typeof ref === "function") ref(value);
@@ -43,11 +39,6 @@ export interface OverflowTextProps extends HTMLAttributes<HTMLElement> {
   marqueeTrigger?: "interaction-or-active" | "interaction";
   /** Runs an overflowing marquee while its owning control is virtually active. */
   marqueeActive?: boolean;
-}
-
-interface OverflowMeasurement {
-  distance: number;
-  isOverflowing: boolean;
 }
 
 export const OverflowText = forwardRef<HTMLElement, OverflowTextProps>(
@@ -86,28 +77,6 @@ export const OverflowText = forwardRef<HTMLElement, OverflowTextProps>(
       assignRef(forwardedRef, element);
     }, [forwardedRef]);
 
-    const updateOverflow = useCallback(() => {
-      const element = elementRef.current;
-      const content = contentRef.current ?? element;
-      if (!element || !content) return;
-
-      const distance = Math.max(0, content.scrollWidth - element.clientWidth);
-      // Single-line text has a font-metric-sized content box; only multiline
-      // clamps use vertical overflow as a truncation signal. Horizontal
-      // measurement still uses the full content width for fade and marquee.
-      const hasVerticalClampOverflow = lines !== undefined
-        && element.clientHeight > 0
-        && element.scrollHeight > element.clientHeight;
-      const isOverflowing = element.clientWidth > 0
-        && (distance > 0 || hasVerticalClampOverflow);
-      const current = measurementRef.current;
-      if (current.distance === distance && current.isOverflowing === isOverflowing) return;
-
-      const next = { distance, isOverflowing };
-      measurementRef.current = next;
-      setMeasurement(next);
-    }, [lines]);
-
     const prepareTooltip = useCallback(() => {
       const element = elementRef.current;
       const trigger = triggerRef.current;
@@ -128,45 +97,27 @@ export const OverflowText = forwardRef<HTMLElement, OverflowTextProps>(
       return true;
     }, []);
 
-    useIsomorphicLayoutEffect(() => {
-      updateOverflow();
-    }, [behavior, children, lines, overflowStyle, updateOverflow]);
-
     useEffect(() => {
       if (measurementRef.current.isOverflowing) prepareTooltip();
-    }, [children, title, prepareTooltip]);
+    }, [children, title, measurement.isOverflowing, prepareTooltip]);
 
     useEffect(() => {
       const element = elementRef.current;
       if (!element) return undefined;
 
-      const resizeObserver = typeof ResizeObserver === "undefined"
-        ? null
-        : new ResizeObserver(updateOverflow);
-      resizeObserver?.observe(element);
-      if (contentRef.current) resizeObserver?.observe(contentRef.current);
-
-      const fontSet = element.ownerDocument.fonts;
-      fontSet?.addEventListener("loadingdone", updateOverflow);
-      // Rich labels may update their own descendants without changing this slot's props.
-      const mutationObserver = textOnly || typeof MutationObserver === "undefined"
-        ? null
-        : new MutationObserver(() => { updateOverflow(); prepareTooltip(); });
-      mutationObserver?.observe(element, { childList: true, characterData: true, subtree: true });
-
-      if (!resizeObserver) {
-        element.ownerDocument.defaultView?.addEventListener("resize", updateOverflow);
-      }
-
-      return () => {
-        resizeObserver?.disconnect();
-        mutationObserver?.disconnect();
-        fontSet?.removeEventListener("loadingdone", updateOverflow);
-        if (!resizeObserver) {
-          element.ownerDocument.defaultView?.removeEventListener("resize", updateOverflow);
+      return observeOverflowText(element, contentRef.current ?? element, {
+        lines,
+        observeMutations: !textOnly,
+      }, next => {
+        const current = measurementRef.current;
+        if (current.distance !== next.distance || current.isOverflowing !== next.isOverflowing) {
+          measurementRef.current = next;
+          setMeasurement(next);
         }
-      };
-    }, [behavior, overflowStyle, prepareTooltip, textOnly, updateOverflow]);
+        // Rich descendants can change their text without changing clipping.
+        if (next.isOverflowing) prepareTooltip();
+      });
+    }, [Tag, behavior, children, lines, overflowStyle, prepareTooltip, textOnly]);
 
     const marqueeDuration = Math.max(
       MARQUEE_MIN_DURATION_MS,

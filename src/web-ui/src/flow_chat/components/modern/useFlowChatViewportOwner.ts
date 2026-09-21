@@ -11,6 +11,9 @@
  */
 
 import { useCallback, useMemo, useRef, type RefObject } from 'react';
+// #region agent log
+import { logSessionOpeningPosition } from '@/shared/utils/sessionOpeningDebug';
+// #endregion
 import {
   isViewportDiagnosticsEnabled,
   roundViewportPx,
@@ -147,6 +150,12 @@ export function useFlowChatViewportOwner(
     const behavior = getMotionAwareScrollBehavior(
       request.behavior === 'smooth' ? 'smooth' : 'auto',
     );
+    // #region agent log
+    // Record existing request values only; do not force a geometry read here.
+    logSessionOpeningPosition('viewportOwner.write', {
+      owner: request.owner, topPx: request.topPx, granted, heldBy, behavior,
+    });
+    // #endregion
     if (isViewportDiagnosticsEnabled()) {
       const fromPx = scroller.scrollTop;
       traceViewportRepeating(`write|${request.owner}|${granted}|${heldBy}`, {
@@ -180,6 +189,9 @@ export function useFlowChatViewportOwner(
     const scroller = scrollerRef.current;
     if (!scroller) return false;
     const allowed = canShift();
+    // #region agent log
+    logSessionOpeningPosition('viewportOwner.shift', { byPx, allowed, heldBy: currentOwner() });
+    // #endregion
     if (isViewportDiagnosticsEnabled()) {
       const fromPx = scroller.scrollTop;
       traceViewportRepeating(`shift|${allowed}|${currentOwner()}`, {

@@ -27,6 +27,9 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, type RefObject } from 'react';
+// #region agent log
+import { countSessionOpeningOutcome, measureSessionOpening, sessionOpeningSpan } from '@/shared/utils/sessionOpeningDebug';
+// #endregion
 import {
   roundViewportPx,
   traceViewport,
@@ -727,15 +730,41 @@ export function useFlowChatViewportAnchor({
   }, []);
 
   const openSettleWindow = useCallback((source: 'items' | 'resize' | 'snapshot' | 'resume' = 'items') => {
+    // #region agent log
+    const finish = sessionOpeningSpan(`anchor.openSettle.${source}`);
+    let result = 'pending';
+    const hadAnchor = anchorRef.current !== null;
+    try {
+    // #endregion
     const scroller = scrollerRef.current;
+    // Navigation releases the old anchor before the next commit captures its destination.
+    if (!anchorRef.current && !recaptureOnNextSettleRef.current) {
+      isRestoringViewportResumeRef.current = false;
+      // #region agent log
+      result = 'no-anchor';
+      // #endregion
+      return;
+    }
     if (source === 'resize' && scroller) {
       const anchor = anchorRef.current;
-      const element = anchor ? findRenderedTurnAnchorElement(scroller, anchor.turnId) : null;
-      const geometry = JSON.stringify([
-        scroller.scrollHeight, scroller.clientWidth, scroller.clientHeight,
-        anchor?.turnId, element ? readTurnAnchorOffsetPx(scroller, element) + scroller.scrollTop : null,
-      ]);
-      if (lastResizeGeometryRef.current === geometry) return;
+      // #region agent log
+      const element = measureSessionOpening('anchor.resize.findElement', () => (
+        anchor ? findRenderedTurnAnchorElement(scroller, anchor.turnId) : null
+      ));
+      const scrollHeight = measureSessionOpening('anchor.resize.scrollHeight', () => scroller.scrollHeight);
+      const clientWidth = measureSessionOpening('anchor.resize.clientWidth', () => scroller.clientWidth);
+      const clientHeight = measureSessionOpening('anchor.resize.clientHeight', () => scroller.clientHeight);
+      const anchorPosition = element
+        ? measureSessionOpening('anchor.resize.anchorPosition', () => readTurnAnchorOffsetPx(scroller, element) + scroller.scrollTop)
+        : null;
+      const geometry = measureSessionOpening('anchor.resize.geometryKey', () => JSON.stringify([
+        scrollHeight, clientWidth, clientHeight, anchor?.turnId, anchorPosition,
+      ]));
+      if (lastResizeGeometryRef.current === geometry) {
+        result = 'same-geometry';
+        return;
+      }
+      // #endregion
       lastResizeGeometryRef.current = geometry;
     }
     settleSourceRef.current = source;
@@ -752,12 +781,17 @@ export function useFlowChatViewportAnchor({
        * jump that is undone the moment the register lets go.
        */
       recaptureOnNextSettleRef.current = false;
-      captureAnchorAt('navigation');
+      // #region agent log
+      measureSessionOpening('anchor.settle.recapture', () => captureAnchorAt('navigation'));
+      result = 'recaptured';
+      // #endregion
     } else {
       // In the caller's own frame, so the displacement and its correction are
       // one paint rather than two. Callers are a layout effect or a
       // ResizeObserver callback; both still run before the browser paints.
-      attemptRestoreRef.current();
+      // #region agent log
+      result = measureSessionOpening('anchor.settle.restore', () => attemptRestoreRef.current());
+      // #endregion
     }
     if (settleFrameRef.current !== null) return;
     const step = (frameStartMs: number) => {
@@ -781,7 +815,10 @@ export function useFlowChatViewportAnchor({
        * already settled and must consume the remaining budget, otherwise an
        * anchor that never moves keeps this RAF loop alive forever.
        */
-      const outcome = attemptRestoreRef.current();
+      // #region agent log
+      const outcome = measureSessionOpening('anchor.frame.restore', () => attemptRestoreRef.current());
+      countSessionOpeningOutcome('anchor.frame', outcome);
+      // #endregion
       // Counted here rather than beside `attempts`, because it is frames the
       // wait is measured in: a Turn that arrives in the next frame costs the
       // reader nothing, and one that takes five is five painted frames of
@@ -812,6 +849,12 @@ export function useFlowChatViewportAnchor({
       }
     };
     settleFrameRef.current = requestAnimationFrame(step);
+    // #region agent log
+    } finally {
+      countSessionOpeningOutcome(`anchor.settle.${source}`, result);
+      finish(() => ({ source, hadAnchor, result }));
+    }
+    // #endregion
   }, [captureAnchorAt, scrollerRef]);
 
   useEffect(() => () => {

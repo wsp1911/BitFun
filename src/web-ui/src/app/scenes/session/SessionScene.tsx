@@ -1,3 +1,6 @@
+// #region agent log
+import { recordOpeningPipeline, useOpeningPipelineEffect, useOpeningPipelineLayoutEffect } from '@/shared/utils/sessionOpeningDebug';
+// #endregion
 import { GripHorizontal as LucideGripHorizontal, GripVertical as LucideGripVertical } from 'lucide-react';
 /**
  * SessionScene — Session scene layout.
@@ -10,7 +13,7 @@ import { GripHorizontal as LucideGripHorizontal, GripVertical as LucideGripVerti
  * Resizer logic moved here from WorkspaceShell.
  */
 
-import React, { useRef, useState, useCallback, useEffect, useLayoutEffect, useMemo } from 'react';
+import React, { useRef, useState, useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useApp } from '../../hooks/useApp';
 import ChatPane from './ChatPane';
@@ -57,6 +60,7 @@ const SessionScene: React.FC<SessionSceneProps> = ({
   isEntering = false,
   isActive = true,
 }) => {
+  recordOpeningPipeline('SessionScene.renderAttempt');
   const { t } = useTranslation('flow-chat');
   const {
     state,
@@ -143,14 +147,14 @@ const SessionScene: React.FC<SessionSceneProps> = ({
     return getPanelDisplayMode(currentBottomHeight, BOTTOM_TERMINAL_PANEL_CONFIG);
   }, [state.layout.bottomTerminalPanelCollapsed, currentBottomHeight]);
 
-  useEffect(() => {
+  useOpeningPipelineEffect('SessionScene.passive.L147', () => {
     const unsubscribe = onTerminalPanelPositionChange(setTerminalPanelPosition);
     void refreshTerminalPanelPosition();
     return unsubscribe;
   }, []);
 
   // Keep right panel visible when chat is hidden
-  useEffect(() => {
+  useOpeningPipelineEffect('SessionScene.passive.L154', () => {
     if (state.layout.chatCollapsed && state.layout.rightPanelCollapsed) {
       expandSessionAuxPane();
     }
@@ -300,7 +304,7 @@ const SessionScene: React.FC<SessionSceneProps> = ({
   // No-animation expansion
   const [isAuxPaneExpandingImmediate, setIsAuxPaneExpandingImmediate] = useState(false);
 
-  useEffect(() => {
+  useOpeningPipelineEffect('SessionScene.passive.L304', () => {
     const handler = (event: CustomEvent) => {
       if (event.detail?.noAnimation && state.layout.rightPanelCollapsed) {
         setIsAuxPaneExpandingImmediate(true);
@@ -321,7 +325,7 @@ const SessionScene: React.FC<SessionSceneProps> = ({
 
   // Responsive resize — also validate on mount to clamp widths restored from
   // localStorage that may exceed the current (non-maximized) window size.
-  useEffect(() => {
+  useOpeningPipelineEffect('SessionScene.passive.L325', () => {
     const validate = () => {
       const valid = calculateValidRightWidth(currentRightWidth);
       if (valid !== currentRightWidth) updateRightPanelWidth(valid);
@@ -350,7 +354,7 @@ const SessionScene: React.FC<SessionSceneProps> = ({
   // This acts as a safety net in case any layout recalculation during the restore
   // cycle lost the user's manual width adjustment.
   const prevVisibleRef = useRef(true);
-  useEffect(() => {
+  useOpeningPipelineEffect('SessionScene.passive.L354', () => {
     const handleVisibility = () => {
       const nowVisible = document.visibilityState === 'visible';
       if (nowVisible && !prevVisibleRef.current) {
@@ -366,7 +370,7 @@ const SessionScene: React.FC<SessionSceneProps> = ({
   }, [currentRightWidth, updateRightPanelWidth, state.layout.rightPanelCollapsed]);
 
   // Cleanup animation frames
-  useEffect(() => () => {
+  useOpeningPipelineEffect('SessionScene.passive.L370', () => () => {
     if (animationFrameRef.current !== null) cancelAnimationFrame(animationFrameRef.current);
     if (rightPanelTransitionTimerRef.current !== null) {
       window.clearTimeout(rightPanelTransitionTimerRef.current);
@@ -382,7 +386,7 @@ const SessionScene: React.FC<SessionSceneProps> = ({
   // Terminal resize is suspended for the whole CSS transition. xterm.js reflows
   // its buffer on every resize, so fitting through intermediate panel widths can
   // permanently damage scrollback before the panel reaches its final size.
-  useLayoutEffect(() => {
+  useOpeningPipelineLayoutEffect('SessionScene.layout.L386', () => {
     const transitionKey = [
       state.layout.rightPanelCollapsed ? 'collapsed' : 'open',
       currentRightWidth,
@@ -416,7 +420,7 @@ const SessionScene: React.FC<SessionSceneProps> = ({
 
   // Bottom docking uses the same suspension as the right panel. This keeps the
   // compact final height usable while avoiding transient animation heights.
-  useLayoutEffect(() => {
+  useOpeningPipelineLayoutEffect('SessionScene.layout.L420', () => {
     const transitionKey = [
       state.layout.bottomTerminalPanelCollapsed ? 'collapsed' : 'open',
       currentBottomHeight,

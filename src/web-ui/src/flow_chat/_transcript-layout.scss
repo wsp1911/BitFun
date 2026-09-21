@@ -5,6 +5,22 @@ $turn-rail-width: 20px;
 
 @mixin viewport {
   container: flow-chat-transcript / inline-size;
+  // #region agent log
+  // Development A/B: retain inline-size containment, bypass only the named
+  // query. The marker is absent in production and stable across reveal.
+  &[data-opening-query-bypass='true'] {
+    container-name: none;
+  }
+  // #endregion
+}
+
+// Shared verbatim by the query and its temporary selector-based control.
+@mixin reading-column-rail-inset {
+  width: calc(100% - #{$turn-rail-offset + $turn-rail-width} - var(--openbitfun-space-1) - var(--openbitfun-space-2));
+  margin-inline-start: max(
+    calc(#{$turn-rail-offset + $turn-rail-width} + var(--openbitfun-space-1)),
+    calc((100% - 900px) / 2)
+  );
 }
 
 @mixin reading-column {
@@ -17,12 +33,13 @@ $turn-rail-width: 20px;
   // Reserve only the rail side plus a small opposite inset. Wide columns stay
   // centered; neither the composer nor the welcome surface needs this lane.
   @container flow-chat-transcript (min-width: 0px) {
-    width: calc(100% - #{$turn-rail-offset + $turn-rail-width} - var(--openbitfun-space-1) - var(--openbitfun-space-2));
-    margin-inline-start: max(
-      calc(#{$turn-rail-offset + $turn-rail-width} + var(--openbitfun-space-1)),
-      calc((100% - 900px) / 2)
-    );
+    @include reading-column-rail-inset;
   }
+  // #region agent log
+  :where(.modern-flowchat-container__messages[data-opening-query-bypass='true']) & {
+    @include reading-column-rail-inset;
+  }
+  // #endregion
 }
 
 // Transcript containers own the reading column; leaf content adds no inset.
