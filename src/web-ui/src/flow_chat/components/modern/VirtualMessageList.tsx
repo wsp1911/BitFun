@@ -18,6 +18,9 @@ import React, {
   useState,
 } from 'react';
 import { Loader2 } from 'lucide-react';
+// #region agent log
+import { countSessionOpeningOutcome, measureSessionOpening, probeSessionOpeningReveal, probeSessionOpeningStyles, sessionOpeningSpan, useSessionOpeningLayoutEffect } from '@/shared/utils/sessionOpeningDebug';
+// #endregion
 import { useTranslation } from 'react-i18next';
 import { useActiveSessionState } from '../../hooks/useActiveSessionState';
 import { useSessionReadOnOpen } from '../../hooks/useSessionReadOnOpen';
@@ -76,6 +79,7 @@ import {
   type HistoryBoundaryProximity,
 } from './flowChatHistoryBoundary';
 import { VirtualItemRenderer } from './VirtualItemRenderer';
+import { FlowChatOpeningBoundary } from './FlowChatOpeningBoundary';
 import { useFlowChatVolatileContext } from './FlowChatContext';
 import {
   estimateVirtualMessageItemHeightWithContext,
@@ -445,6 +449,11 @@ const VirtualMessageListSession = forwardRef<VirtualMessageListRef, VirtualMessa
   onViewportSnapshotRef.current = onViewportSnapshot;
   const [isAtBottom, setIsAtBottom] = useState(true);
   const [isOpenViewportSettled, setIsOpenViewportSettled] = useState(false);
+  // #region agent log
+  useLayoutEffect(() => {
+    if (isOpenViewportSettled) probeSessionOpeningReveal(scrollerElementRef.current);
+  }, [isOpenViewportSettled]);
+  // #endregion
   useSessionReadOnOpen(activeSessionId, isViewportActive);
   const shouldRestoreInitialSnapshot = Boolean(
     initialViewportSnapshot
@@ -767,23 +776,61 @@ const VirtualMessageListSession = forwardRef<VirtualMessageListRef, VirtualMessa
    * transcript actually grew by rather than only what was reserved for it.
    */
   const previousScrollHeightRef = useRef(0);
-  useLayoutEffect(() => {
+  // #region agent log
+  useSessionOpeningLayoutEffect('viewport.prependLayoutEffect', () => {
+  // #endregion
     const previousFirstKey = firstItemKeyRef.current;
     const nextFirstKey = virtualItems[0] ? getVirtualItemStableKey(virtualItems[0]) : null;
     firstItemKeyRef.current = nextFirstKey;
 
     const scroller = scrollerElementRef.current;
-    if (!scroller) return;
+    if (!scroller) {
+      // #region agent log
+      countSessionOpeningOutcome('prepend', 'no-scroller');
+      // #endregion
+      return;
+    }
     const previousScrollHeightPx = previousScrollHeightRef.current;
-    previousScrollHeightRef.current = scroller.scrollHeight;
-    if (isViewportSuspendedRef.current) return;
-    if (previousFirstKey === null || previousFirstKey === nextFirstKey) return;
+    // #region agent log
+    probeSessionOpeningStyles(scroller);
+    const finishScrollHeight = sessionOpeningSpan('viewport.prepend.readScrollHeight');
+    try {
+      previousScrollHeightRef.current = scroller.scrollHeight;
+    } finally {
+      finishScrollHeight(() => ({
+        firstKeyUnchanged: previousFirstKey === nextFirstKey,
+        initialHead: previousFirstKey === null,
+        suspended: isViewportSuspendedRef.current,
+        itemCount: virtualItems.length,
+      }));
+    }
+    // #endregion
+    if (isViewportSuspendedRef.current) {
+      // #region agent log
+      countSessionOpeningOutcome('prepend', 'suspended');
+      // #endregion
+      return;
+    }
+    if (previousFirstKey === null || previousFirstKey === nextFirstKey) {
+      // #region agent log
+      countSessionOpeningOutcome('prepend', previousFirstKey === null ? 'initial-head' : 'unchanged-head');
+      // #endregion
+      return;
+    }
     // Absent means the head was trimmed rather than extended, and there is no
     // prepended height to account for.
     const movedTo = virtualItems.findIndex(
       item => getVirtualItemStableKey(item) === previousFirstKey,
     );
-    if (movedTo <= 0) return;
+    if (movedTo <= 0) {
+      // #region agent log
+      countSessionOpeningOutcome('prepend', 'not-prepended');
+      // #endregion
+      return;
+    }
+    // #region agent log
+    countSessionOpeningOutcome('prepend', 'compensation-path');
+    // #endregion
     /*
      * The rows that arrived are already in the DOM at their real heights, and
      * the cache still holds the estimates it reserved for them: the library
@@ -925,11 +972,17 @@ const VirtualMessageListSession = forwardRef<VirtualMessageListRef, VirtualMessa
     virtualizer,
   ]);
 
-  useLayoutEffect(() => {
+  // #region agent log
+  useSessionOpeningLayoutEffect('viewport.anchorLayoutEffect', () => {
+  // #endregion
     viewportAnchor.openSettleWindow('items');
   }, [viewportAnchor, virtualItems]);
 
   const updateVisibleTurnInfoFromViewport = useCallback(() => {
+    // #region agent log
+    const finish = sessionOpeningSpan('viewport.updateVisibleTurnInfo');
+    try {
+    // #endregion
     const scroller = scrollerElementRef.current;
     if (!scroller) return;
     const scrollerRect = scroller.getBoundingClientRect();
@@ -982,6 +1035,9 @@ const VirtualMessageListSession = forwardRef<VirtualMessageListRef, VirtualMessa
       && previous.visibleTurnIds.length === visibleTurnIds.length
       && previous.visibleTurnIds.every((turnId, index) => turnId === visibleTurnIds[index]);
     if (!unchanged) store.setVisibleTurnInfo(nextVisibleTurnInfo);
+    // #region agent log
+    } finally { finish(); }
+    // #endregion
   }, [isFollowingOutputNow, modernStore, userMessageItems]);
 
   const scheduleVisibleTurnInfoUpdate = useCallback(() => {
@@ -1048,6 +1104,10 @@ const VirtualMessageListSession = forwardRef<VirtualMessageListRef, VirtualMessa
   ]);
 
   const captureViewportSnapshot = useCallback((): FlowChatViewportSnapshot | null => {
+    // #region agent log
+    const finish = sessionOpeningSpan('viewport.captureSnapshot');
+    try {
+    // #endregion
     const scroller = scrollerElementRef.current;
     if (!scroller || !activeSessionId || !isUsableFlowChatViewportRect({
       width: scroller.clientWidth,
@@ -1092,9 +1152,16 @@ const VirtualMessageListSession = forwardRef<VirtualMessageListRef, VirtualMessa
       isAtTail: isAtTailRef.current,
       capturedAtMs: Math.round(performance.now()),
     };
+    // #region agent log
+    } finally { finish(); }
+    // #endregion
   }, [activeSessionId, historyWindow, presentationMode, viewportMode]);
 
   const restoreViewportSnapshot = useCallback((snapshot: FlowChatViewportSnapshot): boolean => {
+    // #region agent log
+    const finish = sessionOpeningSpan('viewport.restoreSnapshot');
+    try {
+    // #endregion
     if (snapshot.sessionId !== activeSessionId) return false;
     const scroller = scrollerElementRef.current;
     if (!scroller || snapshot.anchorTurnId === null || snapshot.anchorOffsetPx === null) {
@@ -1159,6 +1226,9 @@ const VirtualMessageListSession = forwardRef<VirtualMessageListRef, VirtualMessa
       }),
     });
     return true;
+    // #region agent log
+    } finally { finish(); }
+    // #endregion
   }, [activeSessionId, viewportAnchor, viewportOwner, virtualItems]);
 
   const publishViewportSnapshot = useCallback(() => {
@@ -1189,7 +1259,9 @@ const VirtualMessageListSession = forwardRef<VirtualMessageListRef, VirtualMessa
     scheduleViewportSnapshot();
   }, [historyWindow, presentationMode, scheduleViewportSnapshot, virtualItems, viewportMode]);
 
-  useLayoutEffect(() => {
+  // #region agent log
+  useSessionOpeningLayoutEffect('viewport.activationLayoutEffect', () => {
+  // #endregion
     traceViewport({
       location: isViewportActive ? 'viewport.sceneActivated' : 'viewport.sceneDeactivated',
       message: isViewportActive
@@ -1239,7 +1311,9 @@ const VirtualMessageListSession = forwardRef<VirtualMessageListRef, VirtualMessa
     };
   }, [publishViewportSnapshot, viewportId]);
 
-  useLayoutEffect(() => {
+  // #region agent log
+  useSessionOpeningLayoutEffect('viewport.restoreLayoutEffect', () => {
+  // #endregion
     if (!shouldRestoreInitialSnapshot || !initialViewportSnapshot || isOpenViewportSettled) {
       return;
     }
@@ -1269,6 +1343,9 @@ const VirtualMessageListSession = forwardRef<VirtualMessageListRef, VirtualMessa
             }),
           });
           onViewportRestoreSettled?.(initialViewportSnapshot.sessionId);
+          // #region agent log
+          probeSessionOpeningReveal(scrollerElementRef.current);
+          // #endregion
           setIsOpenViewportSettled(true);
           return;
         }
@@ -1290,6 +1367,9 @@ const VirtualMessageListSession = forwardRef<VirtualMessageListRef, VirtualMessa
         }),
       });
       onViewportRestoreSettled?.(initialViewportSnapshot.sessionId);
+      // #region agent log
+      probeSessionOpeningReveal(scrollerElementRef.current);
+      // #endregion
       setIsOpenViewportSettled(true);
     };
     restore();
@@ -1325,6 +1405,10 @@ const VirtualMessageListSession = forwardRef<VirtualMessageListRef, VirtualMessa
     const lastVirtualIndex = virtualItems.length - 1;
 
     const check = () => {
+      // #region agent log
+      const finish = sessionOpeningSpan('viewport.openRevealFrame');
+      try {
+      // #endregion
       frame += 1;
       /*
        * Geometry stability is not a settle signal on its own: before the virtualizer
@@ -1373,10 +1457,16 @@ const VirtualMessageListSession = forwardRef<VirtualMessageListRef, VirtualMessa
             };
           },
         });
+        // #region agent log
+        probeSessionOpeningReveal(scrollerElementRef.current);
+        // #endregion
         setIsOpenViewportSettled(true);
         return;
       }
       rafId = requestAnimationFrame(check);
+      // #region agent log
+      } finally { finish(); }
+      // #endregion
     };
     rafId = requestAnimationFrame(check);
 
@@ -1626,10 +1716,14 @@ const VirtualMessageListSession = forwardRef<VirtualMessageListRef, VirtualMessa
   useEffect(() => {
     if (!scrollerElement) return;
     const observer = new ResizeObserver(() => {
-      const nextViewportBox = {
+      // #region agent log
+      const finishResize = sessionOpeningSpan('viewport.resizeObserver');
+      try {
+      const nextViewportBox = measureSessionOpening('viewport.resize.readBox', () => ({
         width: scrollerElement.clientWidth,
         height: scrollerElement.clientHeight,
-      };
+      }));
+      // #endregion
       /*
        * A minimized WebView2 window reports a zero-height scroller while the
        * document remains visible. That is suspension, not a layout request:
@@ -1638,6 +1732,9 @@ const VirtualMessageListSession = forwardRef<VirtualMessageListRef, VirtualMessa
        * every downstream owner on the last usable box until layout returns.
        */
       if (!isUsableFlowChatViewportRect(nextViewportBox)) {
+        // #region agent log
+        countSessionOpeningOutcome('resize', 'unusable-box');
+        // #endregion
         if (!isViewportSuspendedRef.current) {
           isViewportSuspendedRef.current = true;
           suspendedViewportScrollTopRef.current = scrollerElement.scrollTop;
@@ -1663,9 +1760,14 @@ const VirtualMessageListSession = forwardRef<VirtualMessageListRef, VirtualMessa
         }
         return;
       }
-      updateIsAtScrollStart();
+      // #region agent log
+      measureSessionOpening('viewport.resize.updateScrollStart', updateIsAtScrollStart);
+      // #endregion
       const isResumingSuspendedViewport = isViewportSuspendedRef.current;
       if (isResumingSuspendedViewport) {
+        // #region agent log
+        countSessionOpeningOutcome('resize', 'resume');
+        // #endregion
         traceViewport({
           location: 'viewport.hostResumeDetected',
           message: 'native host returned viewport geometry',
@@ -1702,11 +1804,18 @@ const VirtualMessageListSession = forwardRef<VirtualMessageListRef, VirtualMessa
         || nextViewportBox.height !== previousViewportBox.height
       );
       observedViewportBoxRef.current = nextViewportBox;
+      // #region agent log
+      countSessionOpeningOutcome('resize', viewportBoxChanged ? 'box-changed' : 'box-unchanged');
+      // #endregion
       if (viewportBoxChanged) {
         tailRealignCallbacksRef.current = TAIL_REALIGN_RESIZE_CALLBACKS;
       }
-      setViewportHeightPx(nextViewportBox.height);
-      setViewportWidthPx(nextViewportBox.width);
+      // #region agent log
+      measureSessionOpening('viewport.resize.setBoxState', () => {
+        setViewportHeightPx(nextViewportBox.height);
+        setViewportWidthPx(nextViewportBox.width);
+      });
+      // #endregion
 
       /*
        * Before paint, and ahead of everything below: this observer is the one
@@ -1716,14 +1825,20 @@ const VirtualMessageListSession = forwardRef<VirtualMessageListRef, VirtualMessa
        * genuine resize re-anchors instead of correcting.
        */
       if (viewportBoxChanged) {
-        viewportAnchor.captureAnchor();
+        // #region agent log
+        measureSessionOpening('viewport.resize.captureAnchor', () => viewportAnchor.captureAnchor());
+        // #endregion
       } else {
-        viewportAnchor.openSettleWindow('resize');
+        // #region agent log
+        measureSessionOpening('viewport.resize.settleAnchor', () => viewportAnchor.openSettleWindow('resize'));
+        // #endregion
       }
 
       if (tailRealignCallbacksRef.current > 0) {
         tailRealignCallbacksRef.current -= 1;
-        handleViewportResize({
+        // #region agent log
+        measureSessionOpening('viewport.resize.realignTail', () => handleViewportResize({
+        // #endregion
           // Non-zero only on the callback that carries the change itself; the
           // rest of the window is there for the reflow settling afterwards.
           viewportHeightDeltaPx: viewportBoxChanged
@@ -1732,13 +1847,20 @@ const VirtualMessageListSession = forwardRef<VirtualMessageListRef, VirtualMessa
           // The band check from before this resize, so this must run ahead of
           // `updateIsAtBottom` below.
           wasAtTail: isAtTailRef.current,
-        });
+        // #region agent log
+        }));
+        // #endregion
       }
 
-      scheduleFollowToLatest();
+      // #region agent log
+      measureSessionOpening('viewport.resize.followLatest', scheduleFollowToLatest);
+      // #endregion
       scheduleVisibleTurnInfoUpdate();
       scheduleViewportSnapshot();
-      updateIsAtBottom();
+      // #region agent log
+      measureSessionOpening('viewport.resize.updateBottom', updateIsAtBottom);
+      } finally { finishResize(); }
+      // #endregion
     });
     /*
      * The virtualizer's own first child is a viewport-sized box — it stays at
@@ -2467,6 +2589,10 @@ const VirtualMessageListSession = forwardRef<VirtualMessageListRef, VirtualMessa
   }, [modernStore, userMessageItems.length]);
 
   const handleScrollerRef = useCallback((element: HTMLElement | null) => {
+    // #region agent log
+    const finish = sessionOpeningSpan('viewport.scrollerRef');
+    try {
+    // #endregion
     const scroller = element;
     scrollerElementRef.current = scroller;
     setScrollerElement(scroller);
@@ -2486,6 +2612,9 @@ const VirtualMessageListSession = forwardRef<VirtualMessageListRef, VirtualMessa
         observedViewportBoxRef.current = initialViewportBox;
       }
     }
+    // #region agent log
+    } finally { finish(); }
+    // #endregion
   }, [updateIsAtScrollStart]);
 
   const scrollToPhysicalBottom = useCallback(() => {
@@ -2598,7 +2727,7 @@ const VirtualMessageListSession = forwardRef<VirtualMessageListRef, VirtualMessa
   }
 
   return (
-    <div
+    <FlowChatOpeningBoundary
       data-openbitfun-component="virtual-message-list"
       data-openbitfun-part="root"
       className="virtual-message-list"
@@ -2607,6 +2736,7 @@ const VirtualMessageListSession = forwardRef<VirtualMessageListRef, VirtualMessa
       data-viewport-mode={viewportMode}
       data-streaming-output={isStreamingOutput ? 'true' : 'false'}
       data-open-viewport-settled={isOpenViewportSettled ? 'true' : 'false'}
+      opening={!isOpenViewportSettled}
     >
       <div
         ref={handleScrollerRef}
@@ -2672,7 +2802,7 @@ const VirtualMessageListSession = forwardRef<VirtualMessageListRef, VirtualMessa
         focusReturnRef={scrollerElementRef}
         inputHeight={inputHeight}
       />
-    </div>
+    </FlowChatOpeningBoundary>
   );
 });
 
