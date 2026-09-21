@@ -10,16 +10,14 @@
 import React, {
   forwardRef,
   useCallback,
-  useEffect,
   useImperativeHandle,
-  useLayoutEffect,
   useMemo,
   useRef,
   useState,
 } from 'react';
 import { Loader2 } from 'lucide-react';
 // #region agent log
-import { countSessionOpeningOutcome, measureSessionOpening, probeSessionOpeningReveal, probeSessionOpeningStyles, sessionOpeningSpan, useSessionOpeningLayoutEffect } from '@/shared/utils/sessionOpeningDebug';
+import { countSessionOpeningOutcome, logSessionOpening, measureSessionOpening, openingScrollerContainment, probeSessionOpeningReveal, probeSessionOpeningStyles, recordOpeningPipeline, sessionOpeningSpan, useSessionOpeningLayoutEffect, useOpeningPipelineEffect, useOpeningPipelineLayoutEffect } from '@/shared/utils/sessionOpeningDebug';
 // #endregion
 import { useTranslation } from 'react-i18next';
 import { useActiveSessionState } from '../../hooks/useActiveSessionState';
@@ -370,6 +368,9 @@ const VirtualMessageListSession = forwardRef<VirtualMessageListRef, VirtualMessa
   onViewportRestoreSettled,
   initialViewportSnapshot = null,
 }, ref) => {
+  // #region agent log
+  recordOpeningPipeline('list.renderAttempt', { items: items?.length ?? -1 });
+  // #endregion
   const { t } = useTranslation('flow-chat');
   /**
    * This render, counted.
@@ -380,7 +381,9 @@ const VirtualMessageListSession = forwardRef<VirtualMessageListRef, VirtualMessa
    * this is the counter that claim is checked against. Deliberately dependency
    * free — every commit counts, whatever caused it.
    */
-  useEffect(() => {
+  // #region agent log
+  useOpeningPipelineEffect('list.passive.L386', () => {
+  // #endregion
     noteFlowListCommit();
   });
   const modernStore = useModernFlowChatStoreApi();
@@ -450,7 +453,9 @@ const VirtualMessageListSession = forwardRef<VirtualMessageListRef, VirtualMessa
   const [isAtBottom, setIsAtBottom] = useState(true);
   const [isOpenViewportSettled, setIsOpenViewportSettled] = useState(false);
   // #region agent log
-  useLayoutEffect(() => {
+  // #region agent log
+  useOpeningPipelineLayoutEffect('list.layout.L456', () => {
+  // #endregion
     if (isOpenViewportSettled) probeSessionOpeningReveal(scrollerElementRef.current);
   }, [isOpenViewportSettled]);
   // #endregion
@@ -526,7 +531,9 @@ const VirtualMessageListSession = forwardRef<VirtualMessageListRef, VirtualMessa
   const searchNavigationRequestIdRef = useRef(0);
   const visibleTurnUpdateFrameRef = useRef<number | null>(null);
 
-  useLayoutEffect(() => () => {
+  // #region agent log
+  useOpeningPipelineLayoutEffect('list.layout.L532', () => () => {
+  // #endregion
     searchNavigationRequestIdRef.current += 1;
   }, [activeSessionId]);
 
@@ -558,6 +565,23 @@ const VirtualMessageListSession = forwardRef<VirtualMessageListRef, VirtualMessa
     shiftViewport: viewportOwner.shift,
   });
 
+  // #region agent log
+  // #region agent log
+  useOpeningPipelineLayoutEffect('list.layout.L565', () => {
+  // #endregion
+    logSessionOpening('R', 'virtualizer.commitState', 'virtualizer commit state', {
+      itemCount: virtualItems.length,
+      renderedRowCount: virtualizer.rows.length,
+      firstIndex: virtualizer.rows[0]?.index ?? null,
+      lastIndex: virtualizer.rows.at(-1)?.index ?? null,
+      paddingTopPx: virtualizer.paddingTopPx,
+      paddingBottomPx: virtualizer.paddingBottomPx,
+      settled: isOpenViewportSettled,
+      viewportMode,
+    });
+  }, [isOpenViewportSettled, virtualItems.length, virtualizer.rows, virtualizer.paddingTopPx, virtualizer.paddingBottomPx, viewportMode]);
+  // #endregion
+
   const userMessageItems = useMemo(() => virtualItems
     .map((item, index) => ({ item, index }))
     .filter(({ item }) => item.type === 'user-message'), [virtualItems]);
@@ -582,7 +606,9 @@ const VirtualMessageListSession = forwardRef<VirtualMessageListRef, VirtualMessa
 
   const tailSpacerPx = tailSpacerPxForViewport(viewportHeightPx, bottomLayoutInsetPx);
   const tailSpacerPxRef = useRef(tailSpacerPx);
-  useLayoutEffect(() => {
+  // #region agent log
+  useOpeningPipelineLayoutEffect('list.layout.L603', () => {
+  // #endregion
     tailSpacerPxRef.current = tailSpacerPx;
   }, [tailSpacerPx]);
   const getTailSpacerPx = useCallback(() => tailSpacerPxRef.current, []);
@@ -714,6 +740,7 @@ const VirtualMessageListSession = forwardRef<VirtualMessageListRef, VirtualMessa
     scrollToContentEnd,
     revealNewTurnTail,
     isOpeningViewport,
+    onOpeningOffset: virtualizer.syncViewportOffset,
     viewportOwner,
     viewportId,
   });
@@ -1255,7 +1282,9 @@ const VirtualMessageListSession = forwardRef<VirtualMessageListRef, VirtualMessa
     });
   }, [publishViewportSnapshot]);
 
-  useEffect(() => () => {
+  // #region agent log
+  useOpeningPipelineEffect('list.passive.L1276', () => () => {
+  // #endregion
     if (visibleTurnUpdateFrameRef.current !== null) {
       cancelAnimationFrame(visibleTurnUpdateFrameRef.current);
       visibleTurnUpdateFrameRef.current = null;
@@ -1266,7 +1295,9 @@ const VirtualMessageListSession = forwardRef<VirtualMessageListRef, VirtualMessa
     }
   }, []);
 
-  useLayoutEffect(() => {
+  // #region agent log
+  useOpeningPipelineLayoutEffect('list.layout.L1287', () => {
+  // #endregion
     scheduleViewportSnapshot();
   }, [historyWindow, presentationMode, scheduleViewportSnapshot, virtualItems, viewportMode]);
 
@@ -1296,7 +1327,9 @@ const VirtualMessageListSession = forwardRef<VirtualMessageListRef, VirtualMessa
    * was undone is often a placement made to a scroller that no longer exists.
    * The layout cleanup captures while the outgoing scroller still has geometry.
    */
-  useLayoutEffect(() => {
+  // #region agent log
+  useOpeningPipelineLayoutEffect('list.layout.L1317', () => {
+  // #endregion
     traceViewport({
       location: 'virtualMessageList.mounted',
       message: 'a transcript was mounted',
@@ -1407,17 +1440,24 @@ const VirtualMessageListSession = forwardRef<VirtualMessageListRef, VirtualMessa
    * step is visible, which reads as a flash. Hold the transcript hidden — laid
    * out and measurable, just not painted — until it stops moving.
    */
-  useLayoutEffect(() => {
+  // #region agent log
+  useOpeningPipelineLayoutEffect('list.layout.L1428', () => {
+  // #endregion
     if (!scrollerElement || isOpenViewportSettled || shouldRestoreInitialSnapshot) return;
 
     let frame = 0;
     let quietFrames = 0;
     let rafId: number | null = null;
     const lastVirtualIndex = virtualItems.length - 1;
+    // #region agent log
+    let scheduledAt = performance.now();
+    recordOpeningPipeline('opening.reveal.arm', { lastVirtualIndex });
+    // #endregion
 
     const check = () => {
       // #region agent log
       const finish = sessionOpeningSpan('viewport.openRevealFrame');
+      const callbackDelayMs = performance.now() - scheduledAt;
       try {
       // #endregion
       frame += 1;
@@ -1437,6 +1477,14 @@ const VirtualMessageListSession = forwardRef<VirtualMessageListRef, VirtualMessa
         && lastItem.getBoundingClientRect().bottom
           <= scrollerElement.getBoundingClientRect().bottom + AT_CONTENT_END_THRESHOLD_PX;
       quietFrames = tailVisible && inPosition ? quietFrames + 1 : 0;
+      // #region agent log
+      recordOpeningPipeline('opening.reveal.check', {
+        frame, quietFrames, callbackDelayMs, tailVisible: Number(tailVisible),
+        inPosition: Number(inPosition), lastItemMounted: Number(lastItem !== null),
+        contentEnd, requiredQuietFrames: OPEN_REVEAL_QUIET_FRAMES,
+        maxFrames: OPEN_REVEAL_MAX_FRAMES,
+      });
+      // #endregion
 
       if (quietFrames >= OPEN_REVEAL_QUIET_FRAMES || frame >= OPEN_REVEAL_MAX_FRAMES) {
         /*
@@ -1472,8 +1520,10 @@ const VirtualMessageListSession = forwardRef<VirtualMessageListRef, VirtualMessa
         probeSessionOpeningReveal(scrollerElementRef.current);
         // #endregion
         setIsOpenViewportSettled(true);
+        recordOpeningPipeline('opening.reveal.requested', { frame, quietFrames });
         return;
       }
+      scheduledAt = performance.now();
       rafId = requestAnimationFrame(check);
       // #region agent log
       } finally { finish(); }
@@ -1482,6 +1532,7 @@ const VirtualMessageListSession = forwardRef<VirtualMessageListRef, VirtualMessa
     rafId = requestAnimationFrame(check);
 
     return () => {
+      recordOpeningPipeline('opening.reveal.cleanup', { frame, quietFrames });
       if (rafId !== null) cancelAnimationFrame(rafId);
     };
   }, [
@@ -1555,7 +1606,9 @@ const VirtualMessageListSession = forwardRef<VirtualMessageListRef, VirtualMessa
    * left it: visible, over a viewport that is already at the tail, and inert
    * because clicking it has nothing left to do.
    */
-  useEffect(() => {
+  // #region agent log
+  useOpeningPipelineEffect('list.passive.L1576', () => {
+  // #endregion
     updateIsAtBottom();
   }, [isFollowingOutput, updateIsAtBottom]);
 
@@ -1620,7 +1673,9 @@ const VirtualMessageListSession = forwardRef<VirtualMessageListRef, VirtualMessa
     viewportOwner,
   ]);
 
-  useEffect(() => () => {
+  // #region agent log
+  useOpeningPipelineEffect('list.passive.L1641', () => () => {
+  // #endregion
     if (viewportResumeFrameRef.current !== null) {
       cancelAnimationFrame(viewportResumeFrameRef.current);
       viewportResumeFrameRef.current = null;
@@ -1634,7 +1689,9 @@ const VirtualMessageListSession = forwardRef<VirtualMessageListRef, VirtualMessa
    * it declines for a reader who owns the viewport, which is the case when the
    * rollback came from the middle of a transcript they were reading.
    */
-  useEffect(() => {
+  // #region agent log
+  useOpeningPipelineEffect('list.passive.L1655', () => {
+  // #endregion
     const handleTurnsRolledBackEvent = (event: Event) => {
       const detail = (event as CustomEvent<FlowChatTurnsRolledBackRequest>).detail;
       if (!detail?.sessionId || detail.sessionId !== activeSessionId) return;
@@ -1646,7 +1703,9 @@ const VirtualMessageListSession = forwardRef<VirtualMessageListRef, VirtualMessa
     };
   }, [activeSessionId, handleTurnsRolledBack]);
 
-  useEffect(() => {
+  // #region agent log
+  useOpeningPipelineEffect('list.passive.L1667', () => {
+  // #endregion
     if (!scrollerElement) return;
     const handleNativeScroll = () => {
       if (isViewportSuspendedRef.current) return;
@@ -1724,7 +1783,9 @@ const VirtualMessageListSession = forwardRef<VirtualMessageListRef, VirtualMessa
     viewportOwner,
   ]);
 
-  useEffect(() => {
+  // #region agent log
+  useOpeningPipelineEffect('list.passive.L1745', () => {
+  // #endregion
     if (!scrollerElement) return;
     const observer = new ResizeObserver(() => {
       // #region agent log
@@ -2118,7 +2179,9 @@ const VirtualMessageListSession = forwardRef<VirtualMessageListRef, VirtualMessa
     return 'pending';
   }, [activeSessionId, exitFollowOutput]);
 
-  useLayoutEffect(() => {
+  // #region agent log
+  useOpeningPipelineLayoutEffect('list.layout.L2139', () => {
+  // #endregion
     const prepared = preparedTurnNavigationRef.current;
     if (!prepared) return;
     const status = navigateToTurnWithStatus(prepared.turnId, { behavior: prepared.behavior });
@@ -2565,7 +2628,9 @@ const VirtualMessageListSession = forwardRef<VirtualMessageListRef, VirtualMessa
 
   evaluateHistoryBoundariesRef.current = evaluateHistoryBoundaries;
 
-  useEffect(() => {
+  // #region agent log
+  useOpeningPipelineEffect('list.passive.L2586', () => {
+  // #endregion
     scheduleVisibleTurnInfoUpdate();
     evaluateHistoryBoundaries();
   }, [
@@ -2589,11 +2654,15 @@ const VirtualMessageListSession = forwardRef<VirtualMessageListRef, VirtualMessa
     virtualizer.rows,
   ]);
 
-  useLayoutEffect(() => {
+  // #region agent log
+  useOpeningPipelineLayoutEffect('list.layout.L2610', () => {
+  // #endregion
     scheduleVisibleTurnInfoUpdate();
   }, [isFollowingOutput, scheduleVisibleTurnInfoUpdate, virtualItems]);
 
-  useEffect(() => {
+  // #region agent log
+  useOpeningPipelineEffect('list.passive.L2614', () => {
+  // #endregion
     if (userMessageItems.length === 0) {
       modernStore.getState().setVisibleTurnInfo(null);
     }
@@ -2755,6 +2824,11 @@ const VirtualMessageListSession = forwardRef<VirtualMessageListRef, VirtualMessa
         data-flowchat-scroller="true"
         data-testid="flowchat-scroller"
         style={{
+          // #region agent log
+          // Development A/B only: isolate the fixed-size viewport's layout from
+          // its contents without size-containment on the variable-height rows.
+          contain: openingScrollerContainment,
+          // #endregion
           '--_flow-chat-input-overlay-inset': `${inputOverlayInsetPx}px`,
         } as React.CSSProperties}
       >

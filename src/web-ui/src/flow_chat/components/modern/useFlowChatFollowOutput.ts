@@ -1,4 +1,13 @@
 import { useCallback, useEffect, useRef, useState, type RefObject } from 'react';
+// #region agent log
+import {
+  countSessionOpeningOutcome,
+  measureSessionOpening,
+  sessionOpeningMutationSnapshot,
+  sessionOpeningSpan,
+  recordOpeningPipeline,
+} from '@/shared/utils/sessionOpeningDebug';
+// #endregion
 import {
   isViewportDiagnosticsEnabled,
   roundViewportPx,
@@ -84,6 +93,8 @@ interface UseFlowChatFollowOutputOptions {
   revealNewTurnTail: (turnId: string) => boolean;
   /** True while the transcript is still hidden for the opening reveal. */
   isOpeningViewport: () => boolean;
+  /** Immediate position readback after an opening follow correction, including an already-reached target. */
+  onOpeningOffset?: (actualOffsetPx: number) => void;
   /**
    * Who is moving the viewport. Every write below goes through it, so that
    * nothing else has to carry a private opinion about when this hook is busy.
@@ -210,6 +221,7 @@ export function useFlowChatFollowOutput({
   scrollToContentEnd,
   revealNewTurnTail,
   isOpeningViewport,
+  onOpeningOffset,
   viewportOwner,
   viewportId = 0,
 }: UseFlowChatFollowOutputOptions): UseFlowChatFollowOutputResult {
@@ -220,6 +232,8 @@ export function useFlowChatFollowOutput({
   const latestTurnIdRef = useRef(latestTurnId);
   const isViewportSuspendedRef = useRef(isViewportSuspended);
   isViewportSuspendedRef.current = isViewportSuspended;
+  const onOpeningOffsetRef = useRef(onOpeningOffset);
+  onOpeningOffsetRef.current = onOpeningOffset;
   const followFrameRef = useRef<number | null>(null);
   const previousSessionIdRef = useRef(activeSessionId);
   const previousLatestTurnIdRef = useRef<string | null>(latestTurnId);
@@ -297,13 +311,21 @@ export function useFlowChatFollowOutput({
     isFollowingOutputRef.current && followFrameRef.current !== null
   ), []);
 
-  const readContentEndScrollTop = useCallback((scroller: HTMLElement) => (
-    contentEndScrollTop({
-      scrollHeight: scroller.scrollHeight,
-      clientHeight: scroller.clientHeight,
-      tailSpacerPx: getTailSpacerPx(),
-    })
-  ), [getTailSpacerPx]);
+  const readContentEndScrollTop = useCallback((scroller: HTMLElement) => {
+    // #region agent log
+    const mutationsBefore = sessionOpeningMutationSnapshot();
+    const finish = sessionOpeningSpan('follow.contentEnd');
+    try {
+      return contentEndScrollTop({
+        scrollHeight: measureSessionOpening('follow.read.scrollHeight', () => scroller.scrollHeight),
+        clientHeight: measureSessionOpening('follow.read.clientHeight', () => scroller.clientHeight),
+        tailSpacerPx: measureSessionOpening('follow.read.tailSpacer', getTailSpacerPx),
+      });
+    } finally {
+      finish(() => ({ mutationsBefore, phase: followPhaseRef.current }));
+    }
+    // #endregion
+  }, [getTailSpacerPx]);
 
   /**
    * The state the follow rule would hold for the current geometry, ignoring any
@@ -589,7 +611,9 @@ export function useFlowChatFollowOutput({
       settleFramesRef.current = SETTLE_FRAMES;
     }
 
-    const onTarget = Math.abs(next.target - scroller.scrollTop) <= BOTTOM_EPSILON_PX;
+    let actualOffsetPx = scroller.scrollTop;
+    let writeGranted = true;
+    const onTarget = Math.abs(next.target - actualOffsetPx) <= BOTTOM_EPSILON_PX;
     /*
      * What the loop decided this frame, coalesced by the decision.
      *
@@ -690,7 +714,9 @@ export function useFlowChatFollowOutput({
       })
         ? nextEasedScrollTopPx(fromPx, next.target)
         : { offsetPx: next.target, outcome: 'snapped' as const };
-      viewportOwner.write({ owner: 'follow-output', topPx: step.offsetPx });
+      // #region agent log
+      writeGranted = measureSessionOpening('follow.write', () => viewportOwner.write({ owner: 'follow-output', topPx: step.offsetPx }));
+      // #endregion
       /*
        * Read back rather than taken from the step. The register can refuse
        * this write outright, and a refused follow moves nothing — believing
@@ -698,7 +724,10 @@ export function useFlowChatFollowOutput({
        * smoothest one in the session, and would book the frame below forever
        * over travel that never happens.
        */
-      const movedPx = scroller.scrollTop - fromPx;
+      // #region agent log
+      actualOffsetPx = measureSessionOpening('follow.read.afterWrite', () => scroller.scrollTop);
+      const movedPx = actualOffsetPx - fromPx;
+      // #endregion
       /*
        * An ease in flight is a reason to run again, and the only one it has
        * once the target stops moving: the budget is refreshed by the *target*
@@ -719,6 +748,17 @@ export function useFlowChatFollowOutput({
         });
       }
     }
+    // Native scroll delivery can lag a frame behind our write, leaving the
+    // virtualizer on the old offset while rows are being measured. Publish the
+    // post-write DOM readback directly so range selection can start in this
+    // task, without a synchronous flush. The diagnostic trace measured this
+    // path moving range expansion about 65 ms earlier in one desktop sample;
+    // that is evidence for the optimization, not a fixed runtime guarantee.
+    if (writeGranted && isOpeningViewport() && isFollowingOutputRef.current
+      && followPhaseRef.current === 'following-tail' && isViewportActiveRef.current
+      && !document.hidden && viewportOwner.currentOwner() === 'follow-output') {
+      onOpeningOffsetRef.current?.(actualOffsetPx);
+    }
   }, [
     endSmoothScrollYield,
     getTailSpacerPx,
@@ -731,6 +771,7 @@ export function useFlowChatFollowOutput({
 
   const runFollowFrame = useCallback(() => {
     followFrameRef.current = null;
+    recordOpeningPipeline('opening.follow.frame', { settleFrames: settleFramesRef.current });
     /*
      * Why the loop is not running, which the trail could not say.
      *
@@ -757,6 +798,11 @@ export function useFlowChatFollowOutput({
             ? 'settle-exhausted'
             : null;
     if (standDownReason !== null) {
+      recordOpeningPipeline('opening.follow.standDown', {
+        reason: ['not-following', 'revealing-tail', 'viewport-inactive', 'viewport-suspended',
+          'document-hidden', 'settle-exhausted'].indexOf(standDownReason),
+        settleFrames: settleFramesRef.current,
+      });
       traceViewportRepeating(`follow|standDown|${standDownReason}`, {
         location: 'followOutput.frameStoodDown',
         message: 'the follow loop stopped running',
@@ -777,6 +823,7 @@ export function useFlowChatFollowOutput({
     }
 
     applyFollowTarget();
+    recordOpeningPipeline('opening.follow.applied', { target: followStateRef.current.target });
     followFrameRef.current = requestAnimationFrame(runFollowFrame);
   }, [applyFollowTarget, isOpeningViewport, scrollerRef, viewportId]);
 
@@ -1007,8 +1054,10 @@ export function useFlowChatFollowOutput({
     const scroller = scrollerRef.current;
     if (!scroller || isViewportSuspendedRef.current()) return;
 
-    const scrollTopPx = scroller.scrollTop;
+    // #region agent log
+    const scrollTopPx = measureSessionOpening('follow.watch.scrollTop', () => scroller.scrollTop);
     const contentEndPx = readContentEndScrollTop(scroller);
+    // #endregion
     const blankPx = scrollTopPx - contentEndPx;
     const contentDeltaPx = contentEndPx - watch.lastContentEndPx;
     const scrollDeltaPx = scrollTopPx - watch.lastScrollTopPx;
@@ -1097,6 +1146,16 @@ export function useFlowChatFollowOutput({
    * down.
    */
   const scheduleFollowToLatest = useCallback(() => {
+    // #region agent log
+    const finish = sessionOpeningSpan('follow.schedule');
+    const state = {
+      following: isFollowingOutputRef.current,
+      active: isViewportActiveRef.current,
+      phase: followPhaseRef.current,
+    };
+    let branch = 'suspended';
+    try {
+    // #endregion
     if (isViewportSuspendedRef.current()) return;
     if (
       isFollowingOutputRef.current
@@ -1105,7 +1164,10 @@ export function useFlowChatFollowOutput({
     ) {
       // The reveal is intentionally passive: streamed growth consumes the
       // visible blank while scrollTop stays fixed. Only the crossing is sampled.
-      sampleTailWatch();
+      // #region agent log
+      branch = 'reveal-watch';
+      measureSessionOpening('follow.schedule.watch', sampleTailWatch);
+      // #endregion
       return;
     }
     if (!isFollowingOutputRef.current || !isViewportActiveRef.current) {
@@ -1117,12 +1179,22 @@ export function useFlowChatFollowOutput({
        * only ever be sampled when the reader moved, which is the case it is not
        * watching for.
        */
-      sampleTailWatch();
+      // #region agent log
+      branch = 'inactive-watch';
+      measureSessionOpening('follow.schedule.watch', sampleTailWatch);
+      // #endregion
       return;
     }
     settleFramesRef.current = SETTLE_FRAMES;
-    applyFollowTarget();
-    startFollowFrame();
+    // #region agent log
+    branch = 'apply-target';
+    measureSessionOpening('follow.schedule.applyTarget', applyFollowTarget);
+    measureSessionOpening('follow.schedule.startFrame', startFollowFrame);
+    } finally {
+      countSessionOpeningOutcome('follow.schedule', branch);
+      finish(() => ({ ...state, branch }));
+    }
+    // #endregion
   }, [applyFollowTarget, sampleTailWatch, startFollowFrame]);
 
   const handleUserScrollIntent = useCallback(() => {

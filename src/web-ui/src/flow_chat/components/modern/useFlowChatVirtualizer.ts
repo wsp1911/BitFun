@@ -26,10 +26,16 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react';
+// #region agent log
+import { countSessionOpeningMeasurement, logSessionOpeningPosition, probeSessionOpeningRowMeasurement, sessionOpeningSpan, openingPipelineWork, recordOpeningPipeline } from '@/shared/utils/sessionOpeningDebug';
+// #endregion
 import {
+  defaultRangeExtractor,
+  measureElement as measureTanStackElement,
   observeElementOffset as observeTanStackElementOffset,
   observeElementRect as observeTanStackElementRect,
   useVirtualizer,
+  type Range,
   type Rect,
   type Virtualizer,
 } from '@tanstack/react-virtual';
@@ -212,6 +218,8 @@ export interface FlowChatVirtualizer {
    * the items, before the library's own measurement has caught up.
    */
   measureRenderedItems: () => void;
+  /** Publish an immediate DOM offset readback without moving the viewport. */
+  syncViewportOffset: (actualOffsetPx: number) => void;
   /**
    * The items intersecting the viewport right now, read from live geometry.
    *
@@ -346,7 +354,10 @@ export function useFlowChatVirtualizer<T>({
   const reconcileOpeningMeasurementRef = useRef(reconcileOpeningMeasurement);
   reconcileOpeningMeasurementRef.current = reconcileOpeningMeasurement;
   const pendingMeasurementRef = useRef(false);
-  const publishMeasuredOffsetRef = useRef<(() => void) | null>(null);
+  const publishMeasuredOffsetRef = useRef<((actualOffsetPx?: number) => void) | null>(null);
+  const syncViewportOffset = useCallback((actualOffsetPx: number) => {
+    if (Number.isFinite(actualOffsetPx)) publishMeasuredOffsetRef.current?.(actualOffsetPx);
+  }, []);
   const writeViewportRef = useRef(writeViewport);
   writeViewportRef.current = writeViewport;
   /**
@@ -388,6 +399,10 @@ export function useFlowChatVirtualizer<T>({
 
   const [contentStartPx, setContentStartPx] = useState(0);
   useEffect(() => {
+    // #region agent log
+    const finishHeaderEffect = openingPipelineWork('virtualizer.header.passive');
+    try {
+    // #endregion
     const header = headerRef.current;
     if (!header) return;
     const observer = new ResizeObserver(() => {
@@ -396,6 +411,9 @@ export function useFlowChatVirtualizer<T>({
     observer.observe(header, { box: 'border-box' });
     setContentStartPx(header.offsetHeight);
     return () => observer.disconnect();
+    // #region agent log
+    } finally { finishHeaderEffect(); }
+    // #endregion
   }, [headerRef]);
 
   /*
@@ -419,6 +437,31 @@ export function useFlowChatVirtualizer<T>({
     return item === undefined ? index : getItemKeyRef.current(item);
   }, [estimateContextRevision]);
 
+  // #region agent log
+  // Observe inputs already supplied by TanStack; do not add geometry reads.
+  const openingInputsRef = useRef({
+    offsetPx: null as number | null, heightPx: null as number | null,
+    sizeRevision: 0, estimateRevision: 0,
+  });
+  const openingEstimateRef = useRef(estimateContextRevision);
+  const openingContentStartRef = useRef(contentStartPx);
+  openingContentStartRef.current = contentStartPx;
+  if (openingEstimateRef.current !== estimateContextRevision) {
+    openingEstimateRef.current = estimateContextRevision;
+    openingInputsRef.current.estimateRevision++;
+  }
+  // Keep the extractor stable: a new callback would invalidate the range cache.
+  const openingRangeExtractor = useCallback((range: Range) => {
+    const indexes = defaultRangeExtractor(range);
+    logSessionOpeningPosition('virtualizer.rangeDecision', {
+      ...openingInputsRef.current, startIndex: range.startIndex, endIndex: range.endIndex,
+      firstIndex: indexes[0] ?? null, lastIndex: indexes.at(-1) ?? null,
+      count: range.count, overscan: range.overscan, contentStartPx: openingContentStartRef.current,
+    });
+    return indexes;
+  }, []);
+  // #endregion
+
   const virtualizer = useVirtualizer({
     // A live-tail open previously mounted rows 0..13 before moving to 22..33;
     // the first head measurement flushed 372.3ms of pending layout in a trace.
@@ -433,25 +476,83 @@ export function useFlowChatVirtualizer<T>({
         offset + estimateItemHeightRef.current(item, estimateContextRef.current)
       ), 0)
       : 0,
+    // #region agent log
+    measureElement: (element, entry, instance) => {
+      // #region agent log
+      countSessionOpeningMeasurement(
+        entry ? 'virtualizer.measure.resizeObserver' : 'virtualizer.measure.sync',
+        element.getAttribute('data-virtual-index'),
+        instance.options.count,
+        element,
+        'measure',
+      );
+      // #endregion
+      const finish = sessionOpeningSpan(entry ? 'virtualizer.measure.resizeObserver' : 'virtualizer.measure.sync');
+      try {
+        const sizePx = entry ? measureTanStackElement(element, entry, instance)
+          : probeSessionOpeningRowMeasurement(element, () => measureTanStackElement(element, entry, instance));
+        logSessionOpeningPosition('virtualizer.measuredSize', {
+          index: element.getAttribute('data-virtual-index'), sizePx,
+          source: entry ? 'resize-observer' : 'sync',
+        });
+        return sizePx;
+      } finally {
+        finish(() => ({
+          index: element.getAttribute('data-virtual-index'),
+          itemType: element.getAttribute('data-item-type'),
+          horizontal: instance.options.horizontal,
+        }));
+      }
+    },
+    // #endregion
     count: items.length,
     getScrollElement: () => scrollerRef.current,
-    observeElementRect: observeFlowChatViewportRect,
+    // #region agent log
+    observeElementRect: (instance, callback) => observeFlowChatViewportRect(instance, rect => {
+      openingInputsRef.current.heightPx = rect.height;
+      logSessionOpeningPosition('virtualizer.rectInput', { widthPx: rect.width, heightPx: rect.height });
+      const finishRectCallback = openingPipelineWork('virtualizer.rect.callback');
+      recordOpeningPipeline('virtualizer.rect.beforeNotify', { width: rect.width, height: rect.height });
+      try { callback(rect); } finally {
+        finishRectCallback();
+        recordOpeningPipeline('virtualizer.rect.afterNotify');
+      }
+    }),
+    // #endregion
     observeElementOffset: (instance, callback) => {
       let synchronized = false;
-      const publish = () => {
+      const publish = (actualOffsetPx?: number) => {
         const scroller = instance.scrollElement;
-        if (!scroller) return;
-        const actualOffset = scroller.scrollTop;
+        if (!scroller || scroller !== scrollerRef.current || isViewportSuspendedRef.current()) return;
+        const actualOffset = actualOffsetPx ?? scroller.scrollTop;
         synchronized = true;
-        // false avoids a nested flushSync while React is attaching measured rows.
+        // #region agent log
+        openingInputsRef.current.offsetPx = actualOffset;
+        logSessionOpeningPosition('virtualizer.offsetReconciled', {
+          offsetPx: actualOffset, previousCachedOffsetPx: instance.scrollOffset,
+          sizeRevision: openingInputsRef.current.sizeRevision,
+          source: actualOffsetPx === undefined ? 'measurement' : 'viewport-readback',
+        });
+        // #endregion
+        // The opening follow may publish a readback before the browser delivers
+        // its native scroll event. Feed it through the same observer channel so
+        // TanStack recalculates the range immediately; false avoids a nested
+        // flushSync while React is attaching measured rows.
         if (instance.scrollOffset !== actualOffset) callback(actualOffset, false);
       };
       publishMeasuredOffsetRef.current = publish;
       const cleanup = observeTanStackElementOffset(instance, (offset, isScrolling) => {
         // TanStack's debounced scroll-end callback captures the last native-event
-        // offset. It must not undo a newer synchronous measurement reconciliation.
+        // offset. It must not undo a newer measurement or follow reconciliation.
         if (synchronized && !isScrolling && instance.scrollElement) offset = instance.scrollElement.scrollTop;
         if (isScrolling) synchronized = false;
+        // #region agent log
+        openingInputsRef.current.offsetPx = offset;
+        logSessionOpeningPosition('virtualizer.offsetInput', {
+          offsetPx: offset, previousCachedOffsetPx: instance.scrollOffset, isScrolling,
+          sizeRevision: openingInputsRef.current.sizeRevision,
+        });
+        // #endregion
         callback(offset, isScrolling);
       });
       return () => {
@@ -459,7 +560,13 @@ export function useFlowChatVirtualizer<T>({
         if (publishMeasuredOffsetRef.current === publish) publishMeasuredOffsetRef.current = null;
       };
     },
+    // #region agent log
+    rangeExtractor: openingRangeExtractor,
+    // #endregion
     onChange: (_instance, sync) => {
+      // #region agent log
+      recordOpeningPipeline('virtualizer.onChange.afterReactNotify', { sync: Number(sync), pendingMeasurement: Number(pendingMeasurementRef.current) });
+      // #endregion
       if (sync || !pendingMeasurementRef.current) return;
       pendingMeasurementRef.current = false;
       // A trace showed rows 22..26 shrinking by 729px while range selection
@@ -510,6 +617,15 @@ export function useFlowChatVirtualizer<T>({
     // move the reader's existing content and needs a viewport shift.
     const fullyAboveViewport = isItemFullyAboveViewport(item.end, beforeScrollTopPx);
     const applied = fullyAboveViewport ? shiftViewport(delta) : false;
+    // #region agent log
+    openingInputsRef.current.sizeRevision++;
+    logSessionOpeningPosition('virtualizer.sizeChange', {
+      index: item.index, positionSizePx: item.size, deltaPx: delta,
+      startPx: item.start, endPx: item.end, beforeScrollTopPx, beforeScrollHeightPx,
+      cachedOffsetPx: virtualizer.scrollOffset, fullyAboveViewport, applied,
+      sizeRevision: openingInputsRef.current.sizeRevision,
+    });
+    // #endregion
     const virtualItem = itemsRef.current[item.index];
     if (isViewportDiagnosticsEnabled()) {
       const diagnosticItem = virtualItem as {
@@ -576,7 +692,21 @@ export function useFlowChatVirtualizer<T>({
     contentStartPx,
   );
 
-  const measureRowElement = virtualizer.measureElement;
+  // #region agent log
+  const measureRowElement = useCallback((element: HTMLElement | null) => {
+    // #region agent log
+    countSessionOpeningMeasurement(
+      'virtualizer.rowRef',
+      element?.getAttribute('data-virtual-index') ?? null,
+      itemsRef.current.length,
+      element,
+      element ? 'mount' : 'cleanup',
+    );
+    // #endregion
+    const finish = sessionOpeningSpan('virtualizer.rowRef');
+    try { virtualizer.measureElement(element); } finally { finish(); }
+  }, [virtualizer]);
+  // #endregion
 
   const rowsRef = useRef(rows);
   rowsRef.current = rows;
@@ -611,6 +741,10 @@ export function useFlowChatVirtualizer<T>({
    * the same work the ResizeObserver was going to do, done a frame earlier.
    */
   const measureRenderedItems = useCallback(() => {
+    // #region agent log
+    const finish = sessionOpeningSpan('virtualizer.measureRenderedItems');
+    try {
+    // #endregion
     const scroller = scrollerRef.current;
     if (!scroller || isViewportSuspendedRef.current()) return;
     const elements = scroller.querySelectorAll<HTMLElement>('[data-virtual-index]');
@@ -622,6 +756,9 @@ export function useFlowChatVirtualizer<T>({
         virtualizer.options.measureElement(element, undefined, virtualizer),
       );
     }
+    // #region agent log
+    } finally { finish(); }
+    // #endregion
   }, [scrollerRef, virtualizer]);
 
   const getItemBounds = useCallback((index: number): FlowChatItemBounds | null => {
@@ -642,6 +779,9 @@ export function useFlowChatVirtualizer<T>({
     aimOwnerRef.current = options.owner;
     aimHoldForMsRef.current = options.holdForMs;
     aimStartedAtMsRef.current = performance.now();
+    // #region agent log
+    logSessionOpeningPosition('virtualizer.aimIndex', { index, owner: options.owner, align: options.align });
+    // #endregion
     virtualizer.scrollToIndex(index, {
       align: options.align,
       behavior: options.behavior ?? 'auto',
@@ -659,6 +799,9 @@ export function useFlowChatVirtualizer<T>({
     aimOwnerRef.current = options.owner;
     aimHoldForMsRef.current = options.holdForMs;
     aimStartedAtMsRef.current = performance.now();
+    // #region agent log
+    logSessionOpeningPosition('virtualizer.aimOffset', { topPx: offsetPx, owner: options.owner });
+    // #endregion
     virtualizer.scrollToOffset(offsetPx, {
       align: 'start',
       behavior: options.behavior ?? 'auto',
@@ -705,6 +848,7 @@ export function useFlowChatVirtualizer<T>({
     measureRowElement,
     getItemBounds,
     measureRenderedItems,
+    syncViewportOffset,
     getVisibleItemRange,
     scrollItemIntoView,
     scrollToOffset,
