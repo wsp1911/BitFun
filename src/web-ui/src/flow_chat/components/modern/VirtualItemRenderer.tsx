@@ -4,6 +4,10 @@
  */
 
 import React from 'react';
+// #region agent log
+import { scrollProbe, scrollProbeEnabled, ScrollProbeProfiler } from './flowChatScrollProbe';
+import { elapsedMs, nowMs } from '@/shared/utils/timing';
+// #endregion
 import { Loader2 } from 'lucide-react';
 import type { VirtualItem } from '../../store/modernFlowChatStore';
 import { UserMessageItem } from './UserMessageItem';
@@ -43,7 +47,16 @@ export const VirtualItemRenderer = React.memo<VirtualItemRendererProps>(
     const [wrapper, setWrapper] = React.useState<HTMLDivElement | null>(null);
     const rowRef = React.useCallback((element: HTMLDivElement | null) => {
       setWrapper(element);
+      // #region agent log
+      const probeStarted = scrollProbeEnabled ? nowMs() : 0;
+      // #endregion
       measureRef?.(element);
+      // #region agent log
+      if (scrollProbeEnabled) scrollProbe('C', 'row.measureRef', {
+        index: element?.dataset.virtualIndex, mounted: element !== null,
+        durationMs: elapsedMs(probeStarted),
+      });
+      // #endregion
     }, [measureRef]);
     const searchLine = useFlowChatSearchPresentation(wrapper, searchQuery, matches, currentMatch);
 
@@ -137,7 +150,13 @@ export const VirtualItemRenderer = React.memo<VirtualItemRendererProps>(
         data-virtual-index={index}
         data-item-index={index}
       >
-        {content || <div style={{ minHeight: '1px' }} />}
+        {/* #region agent log */}
+        <ScrollProbeProfiler probeId={getVirtualItemStableKey(item)} metadata={{
+          scope: 'row', kind: item.type, index, turnId: item.turnId,
+        }}>
+          {content || <div style={{ minHeight: '1px' }} />}
+        </ScrollProbeProfiler>
+        {/* #endregion */}
         <ConversationExcerptMarkers wrapper={wrapper} turnId={item.turnId} />
         <span
           aria-hidden="true"

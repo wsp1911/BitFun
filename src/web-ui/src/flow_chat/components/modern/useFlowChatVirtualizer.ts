@@ -40,6 +40,9 @@ import {
   isViewportDiagnosticsEnabled,
 } from '@/infrastructure/diagnostics/flowChatViewportDiagnostics';
 import type { FlowChatViewportOwner } from './flowChatViewportOwnership';
+// #region agent log - temporary window reconciliation investigation
+import { scrollProbe, scrollProbeEnabled } from './flowChatScrollProbe';
+// #endregion
 import {
   describeVirtualItemEstimate,
   type VirtualItemHeightEstimateContext,
@@ -448,6 +451,11 @@ export function useFlowChatVirtualizer<T>({
           const scroller = instance.scrollElement;
           if (!scroller || scroller !== scrollerRef.current || isViewportSuspendedRef.current()) return;
           const actualOffset = actualOffsetPx ?? scroller.scrollTop;
+        // #region agent log
+        if (scrollProbeEnabled) scrollProbe('F', 'virtualizer.publishOffset', {
+          actualOffset, cachedOffset: instance.scrollOffset,
+        });
+        // #endregion
         synchronized = true;
         // false avoids a nested flushSync while React is attaching measured rows.
         if (instance.scrollOffset !== actualOffset) callback(actualOffset, false);
@@ -458,6 +466,11 @@ export function useFlowChatVirtualizer<T>({
         // offset. It must not undo a newer synchronous measurement reconciliation.
         if (synchronized && !isScrolling && instance.scrollElement) offset = instance.scrollElement.scrollTop;
         if (isScrolling) synchronized = false;
+        // #region agent log - use callback/cache values; no extra geometry read.
+        if (scrollProbeEnabled) scrollProbe('F', 'virtualizer.observeOffset', {
+          offset, isScrolling, cachedOffset: instance.scrollOffset,
+        });
+        // #endregion
         callback(offset, isScrolling);
       });
       return () => {
@@ -477,6 +490,11 @@ export function useFlowChatVirtualizer<T>({
       // Retest: five row cleanups became zero; post-reveal sampling advanced
       // from 786.8ms to 596.4ms (single desktop trace, not paint timing).
       const reconciled = reconcileOpeningMeasurementRef.current?.();
+      // #region agent log
+      if (scrollProbeEnabled) scrollProbe('F', 'virtualizer.measurementChange', {
+        cachedOffset: _instance.scrollOffset, reconciled, shifted, sync,
+      });
+      // #endregion
       // Ordinary reading also shifts the real viewport when measured rows above
       // it shrink. Publish that readback after the size cache updates, before
       // selecting a window from the old offset and unmounting those same rows.
@@ -523,6 +541,14 @@ export function useFlowChatVirtualizer<T>({
     const fullyAboveViewport = isItemFullyAboveViewport(item.end, beforeScrollTopPx);
     const applied = fullyAboveViewport ? shiftViewport(delta) : false;
     if (applied) pendingMeasurementShiftRef.current = true;
+    // #region agent log - existing measurement values only.
+    if (scrollProbeEnabled) scrollProbe('F', 'virtualizer.resize', {
+      index: item.index, previousSize: item.size, nextSize: item.size + delta,
+      delta, start: item.start, end: item.end,
+      beforeScrollTopPx, beforeScrollHeightPx,
+      cachedOffset: virtualizer.scrollOffset, fullyAboveViewport, applied,
+    });
+    // #endregion
     const virtualItem = itemsRef.current[item.index];
     if (isViewportDiagnosticsEnabled()) {
       const diagnosticItem = virtualItem as {
@@ -588,6 +614,16 @@ export function useFlowChatVirtualizer<T>({
     totalSizePx,
     contentStartPx,
   );
+
+  // #region agent log - capture render selection and emit only committed work.
+  const selectionOffset = virtualizer.scrollOffset;
+  useEffect(() => {
+    if (scrollProbeEnabled) scrollProbe('F', 'virtualizer.windowCommit', {
+      selectionOffset, totalSizePx, paddingTopPx, paddingBottomPx,
+      first: rows[0]?.index, last: rows.at(-1)?.index, count: rows.length,
+    });
+  }, [rows, selectionOffset, totalSizePx, paddingTopPx, paddingBottomPx]);
+  // #endregion
 
   const measureRowElement = virtualizer.measureElement;
 

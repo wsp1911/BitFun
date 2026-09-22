@@ -16,6 +16,9 @@ import { useI18n } from '@/infrastructure/i18n';
 import { FlowTextBlock } from '../FlowTextBlock';
 import { FlowToolCard } from '../FlowToolCard';
 import { ModelThinkingDisplay } from '../../tool-cards/ModelThinkingDisplay';
+// #region agent log
+import { ScrollProbeProfiler } from './flowChatScrollProbe';
+// #endregion
 import { TypewriterRevealGateProvider } from '../../hooks/TypewriterRevealGate';
 import { useCreateTypewriterRevealGate } from '../../hooks/typewriterRevealGateContext';
 import { getModelRoundItemClassName } from './modelRoundItemClassName';
@@ -860,7 +863,27 @@ interface FlowItemRendererProps {
 }
 
 // Do not memoize: streaming content updates frequently.
-const FlowItemRenderer: React.FC<FlowItemRendererProps> = ({
+// #region agent log
+const FlowItemRenderer: React.FC<FlowItemRendererProps> = props => {
+  const { item } = props;
+  const tool = item.type === 'tool' ? item as FlowToolItem : undefined;
+  return (
+    <ScrollProbeProfiler probeId={item.id} metadata={{
+      turnId: props.turnId, roundId: props.roundId, kind: item.type,
+      toolName: tool?.toolName,
+      contentChars: item.type === 'thinking' || item.type === 'text'
+        ? (item as FlowThinkingItem | FlowTextItem).content?.length : undefined,
+      inputContentChars: typeof tool?.toolCall.input?.content === 'string'
+        ? tool.toolCall.input.content.length : undefined,
+      resultChars: typeof tool?.toolResult?.result === 'string'
+        ? tool.toolResult.result.length : undefined,
+    }}>
+      <FlowItemRendererContent {...props} />
+    </ScrollProbeProfiler>
+  );
+};
+// #endregion
+const FlowItemRendererContent: React.FC<FlowItemRendererProps> = ({
   item,
   turnId,
   roundId,

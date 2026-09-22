@@ -77,6 +77,9 @@ import {
 } from './flowChatHistoryBoundary';
 import { VirtualItemRenderer } from './VirtualItemRenderer';
 import { FlowChatPrependSnapshot } from './FlowChatPrependSnapshot';
+// #region agent log
+import { useScrollPerformanceProbe } from './flowChatScrollProbe';
+// #endregion
 import { FlowChatOpeningBoundary } from './FlowChatOpeningBoundary';
 import { useFlowChatVolatileContext } from './FlowChatContext';
 import {
@@ -556,6 +559,13 @@ const VirtualMessageListSession = forwardRef<VirtualMessageListRef, VirtualMessa
     shiftViewport: viewportOwner.shift,
   });
 
+  // #region agent log
+  useScrollPerformanceProbe(scrollerElement, isViewportActive, {
+    sessionId: activeSessionId, viewportId, presentationMode,
+    itemCount: virtualItems.length, renderedCount: virtualizer.rows.length,
+    paddingTopPx: virtualizer.paddingTopPx, paddingBottomPx: virtualizer.paddingBottomPx,
+  });
+  // #endregion
   const userMessageItems = useMemo(() => virtualItems
     .map((item, index) => ({ item, index }))
     .filter(({ item }) => item.type === 'user-message'), [virtualItems]);
