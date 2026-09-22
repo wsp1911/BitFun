@@ -90,7 +90,12 @@
   line-height: inherit;
 }
 
-.markdown-renderer p + p {
+// Tag-only sibling rules caused unrelated elements to enter Chromium style
+// invalidation (93 paragraph, 70 list-item and 104 table-cell records in one
+// desktop trace). Owned classes narrow the candidates; :where() preserves
+// specificity and same-tag adjacency, including sanitized HTML and math output.
+// Overall scrolling improvement has not been measured for this change.
+.markdown-renderer p:where(.markdown-paragraph) + p:where(.markdown-paragraph) {
   margin-top: var(--markdown-paragraph-gap);
 }
 
@@ -169,7 +174,7 @@
   word-wrap: break-word;
 }
 
-.markdown-renderer li + li {
+.markdown-renderer li:where(.markdown-list-item) + li:where(.markdown-list-item) {
   margin-top: var(--markdown-list-item-gap);
 }
 
@@ -471,7 +476,7 @@
   vertical-align: middle;
 }
 
-.markdown-renderer div[align="center"] > p + p {
+.markdown-renderer div[align="center"] > p:where(.markdown-paragraph) + p:where(.markdown-paragraph) {
   margin-top: 0.2rem;
 }
 
@@ -570,8 +575,8 @@
   vertical-align: top;
 }
 
-.markdown-renderer .table-wrapper th + th,
-.markdown-renderer .table-wrapper td + td {
+.markdown-renderer .table-wrapper th:where(.markdown-header-cell) + th:where(.markdown-header-cell),
+.markdown-renderer .table-wrapper td:where(.markdown-data-cell) + td:where(.markdown-data-cell) {
   border-left: 1px solid var(--markdown-table-col-divider);
 }
 
