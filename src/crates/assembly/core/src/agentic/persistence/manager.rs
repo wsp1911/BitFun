@@ -1774,10 +1774,20 @@ impl PersistenceManager {
         session_id: &str,
     ) -> OpenBitFunResult<Option<SessionMetadata>> {
         Self::validate_session_id(session_id)?;
-        self.session_metadata_store(workspace_path)
+        let result = self
+            .session_metadata_store(workspace_path)
             .load_metadata(session_id)
-            .await
-            .map_err(Self::session_metadata_store_error)
+            .await;
+        // #region agent log: SessionRecoveryTrace
+        if !matches!(&result, Ok(Some(_))) && log::log_enabled!(log::Level::Info) {
+            let layout = self.session_layout(workspace_path);
+            info!("SessionRecoveryTrace metadata_lookup_failed: session_id={}, input_path={}, sessions_root={}, session_dir_exists={}, metadata_exists={}, state_exists={}, index_exists={}, result={:?}",
+                session_id, workspace_path.display(), layout.sessions_root().display(),
+                layout.session_dir(session_id).exists(), layout.metadata_path(session_id).exists(),
+                self.state_path(workspace_path, session_id).exists(), layout.index_path().exists(), result);
+        }
+        // #endregion
+        result.map_err(Self::session_metadata_store_error)
     }
 
     async fn load_stored_session_state(
@@ -2669,6 +2679,17 @@ impl PersistenceManager {
         stored_state: Option<StoredSessionStateFile>,
         turns: &[DialogTurnData],
     ) -> OpenBitFunResult<Session> {
+        // #region agent log: SessionRecoveryTrace
+        info!("SessionRecoveryTrace persisted_identity: session_id={}, metadata_workspace_id={:?}, metadata_project_workspace_id={:?}, metadata_workspace_path={:?}, metadata_project_workspace_path={:?}, metadata_hostname={:?}, state_present={}, state_workspace_id={:?}, state_project_workspace_id={:?}, state_workspace_path={:?}, state_project_workspace_path={:?}, state_remote_connection_id={:?}, state_remote_ssh_host={:?}",
+            metadata.session_id, metadata.workspace_id, metadata.project_workspace_id,
+            metadata.workspace_path, metadata.project_workspace_path, metadata.workspace_hostname,
+            stored_state.is_some(), stored_state.as_ref().and_then(|s| s.config.workspace_id.as_deref()),
+            stored_state.as_ref().and_then(|s| s.config.project_workspace_id.as_deref()),
+            stored_state.as_ref().and_then(|s| s.config.workspace_path.as_deref()),
+            stored_state.as_ref().and_then(|s| s.config.project_workspace_path.as_deref()),
+            stored_state.as_ref().and_then(|s| s.config.remote_connection_id.as_deref()),
+            stored_state.as_ref().and_then(|s| s.config.remote_ssh_host.as_deref()));
+        // #endregion
         let legacy_minimal = stored_state
             .as_ref()
             .is_some_and(|value| value.config.legacy_minimal_agent);

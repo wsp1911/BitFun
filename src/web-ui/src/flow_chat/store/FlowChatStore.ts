@@ -2958,6 +2958,17 @@ export class FlowChatStore {
     const workspaceId = session
       ? sessionOwningWorkspaceId(session)
       : undefined;
+    // #region agent log: SessionRecoveryTrace
+    log.info('SessionRecoveryTrace history_workspace_selector', {
+      sessionId, workspaceId, surfaceId: getActiveSurfaceScope().surfaceId,
+      activeWorkspaceId: workspaceManager.getState().activeWorkspaceId,
+      sessionWorkspaceId: session?.workspaceId, sessionProjectWorkspaceId: session?.projectWorkspaceId,
+      sessionWorkspacePath: session?.workspacePath, sessionProjectWorkspacePath: session?.projectWorkspacePath,
+      configWorkspaceId: session?.config.workspaceId, configProjectWorkspaceId: session?.config.projectWorkspaceId,
+      configWorkspacePath: session?.config.workspacePath, configProjectWorkspacePath: session?.config.projectWorkspacePath,
+      historyState: session?.historyState,
+    });
+    // #endregion
     if (!workspaceId) throw new Error(`Workspace ID is unavailable for session: ${sessionId}`);
     return workspaceId;
   }

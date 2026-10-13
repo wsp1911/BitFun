@@ -8,6 +8,9 @@ import { getActiveSurfaceScope } from '@/infrastructure/peer-device/deviceSurfac
 import { resolveSessionSceneWorkspace } from '@/app/services/sessionSceneTarget';
 import { sessionProjectWorkspacePath } from '../utils/sessionWorkspace';
 import { i18nService } from '@/infrastructure/i18n';
+import { createLogger } from '@/shared/utils/logger';
+
+const log = createLogger('SessionActivation');
 
 interface SessionActivationOptions {
   workspaceId?: string;
@@ -40,6 +43,17 @@ export async function activateMainSession(sessionId: string, options?: SessionAc
   const session = flowChatStore.getState().sessions.get(sessionId);
   const workspace = session && resolveSessionSceneWorkspace(session, workspaceManager.getState().openedWorkspaces.values());
   const workspaceId = options?.workspaceId ?? workspace?.id;
+  // #region agent log: SessionRecoveryTrace
+  log.info('SessionRecoveryTrace activation_target', {
+    sessionId, request, requestedWorkspaceId: options?.workspaceId,
+    resolvedWorkspaceId: workspace?.id, workspaceId,
+    activeWorkspaceId: workspaceManager.getState().activeWorkspaceId,
+    sessionWorkspaceId: session?.workspaceId, sessionProjectWorkspaceId: session?.projectWorkspaceId,
+    sessionWorkspacePath: session?.workspacePath, sessionProjectWorkspacePath: session?.projectWorkspacePath,
+    remoteConnectionId: session?.remoteConnectionId, remoteSshHost: session?.remoteSshHost,
+    historyState: session?.historyState, isHistorical: session?.isHistorical,
+  });
+  // #endregion
   if (session && sessionProjectWorkspacePath(session) && !workspaceId
     && workspaceManager.getState().currentWorkspace) {
     throw new Error(i18nService.t('common:sceneBar.workspaceUnavailable'));

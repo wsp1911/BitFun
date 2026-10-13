@@ -9,6 +9,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use async_trait::async_trait;
+use log::info;
 use openbitfun_agent_runtime::sdk::{
     AgentLocalCommandTurnRecordRequest, AgentRuntime, AgentSessionArchiveStateRequest,
     AgentSessionDeleteRequest, AgentSessionForkAtTurnRequest, AgentSessionLineageRequest,
@@ -305,6 +306,35 @@ impl DesktopSessionApplication {
         self.scope_resolver.resolve(request).await
     }
 
+    // #region agent log: SessionRecoveryTrace
+    async fn traced_session_scope(
+        &self,
+        request: DesktopSessionScopeRequest,
+        session_id: &str,
+        operation: &str,
+    ) -> DesktopSessionApplicationResult<ResolvedDesktopSessionScope> {
+        info!(
+            "SessionRecoveryTrace scope_request: operation={}, session_id={}, workspace_id={:?}, workspace_path={}, remote_connection_id={:?}, remote_ssh_host={:?}",
+            operation, session_id, request.workspace_id, request.workspace_path,
+            request.remote_connection_id, request.remote_ssh_host,
+        );
+        let result = self.resolved_scope(request).await;
+        match &result {
+            Ok(scope) => info!(
+                "SessionRecoveryTrace scope_resolved: operation={}, session_id={}, workspace_id={}, workspace_path={}, storage_path={}, remote_connection_id={:?}, remote_ssh_host={:?}",
+                operation, session_id, scope.workspace_id, scope.workspace_path,
+                scope.effective_storage_path.display(), scope.remote_connection_id,
+                scope.resolved_remote_ssh_host,
+            ),
+            Err(error) => info!(
+                "SessionRecoveryTrace scope_failed: operation={}, session_id={}, error={}",
+                operation, session_id, error,
+            ),
+        }
+        result
+    }
+    // #endregion
+
     fn storage_path(&self, scope: &ResolvedDesktopSessionScope) -> PathBuf {
         scope.effective_storage_path.clone()
     }
@@ -379,6 +409,12 @@ impl DesktopSessionApplication {
             .await
             .map_err(|error| DesktopSessionApplicationError::Core(error.to_string()))?;
         for record in &mut records {
+            // #region agent log: SessionRecoveryTrace
+            info!("SessionRecoveryTrace catalog_record: session_id={}, list_workspace_id={}, list_workspace_path={}, storage_path={}, metadata_workspace_id={:?}, metadata_project_workspace_id={:?}, metadata_workspace_path={:?}, metadata_project_workspace_path={:?}",
+                record.session_id, scope.workspace_id, scope.workspace_path, storage_path.display(),
+                record.workspace_id, record.project_workspace_id, record.workspace_path,
+                record.project_workspace_path);
+            // #endregion
             record
                 .workspace_id
                 .get_or_insert_with(|| scope.workspace_id.clone());
@@ -407,6 +443,12 @@ impl DesktopSessionApplication {
             .await
             .map_err(|error| DesktopSessionApplicationError::Core(error.to_string()))?;
         for record in &mut page.sessions {
+            // #region agent log: SessionRecoveryTrace
+            info!("SessionRecoveryTrace catalog_record: session_id={}, list_workspace_id={}, list_workspace_path={}, storage_path={}, metadata_workspace_id={:?}, metadata_project_workspace_id={:?}, metadata_workspace_path={:?}, metadata_project_workspace_path={:?}",
+                record.session_id, scope.workspace_id, scope.workspace_path, storage_path.display(),
+                record.workspace_id, record.project_workspace_id, record.workspace_path,
+                record.project_workspace_path);
+            // #endregion
             record
                 .workspace_id
                 .get_or_insert_with(|| scope.workspace_id.clone());
@@ -509,7 +551,9 @@ impl DesktopSessionApplication {
         request: DesktopSessionScopeRequest,
         session_id: &str,
     ) -> DesktopSessionApplicationResult<Option<SessionMetadata>> {
-        let scope = self.resolved_scope(request).await?;
+        let scope = self
+            .traced_session_scope(request, session_id, "load_metadata")
+            .await?;
         let storage_path = self.storage_path(&scope);
         self.compatibility
             .load_persisted_session_metadata(&storage_path, session_id)
@@ -775,11 +819,23 @@ impl DesktopSessionApplication {
         session_id: &str,
         include_internal: bool,
     ) -> DesktopSessionApplicationResult<()> {
+        // #region agent log: SessionRecoveryTrace
+        info!(
+            "SessionRecoveryTrace ensure_loaded_start: session_id={}, workspace_id={:?}, workspace_path={}, include_internal={}",
+            session_id, request.workspace_id, request.workspace_path, include_internal,
+        );
+        // #endregion
         if self
             .compatibility
             .is_session_loaded_in_memory(session_id)
             .map_err(|error| DesktopSessionApplicationError::Core(error.to_string()))?
         {
+            // #region agent log: SessionRecoveryTrace
+            info!(
+                "SessionRecoveryTrace ensure_loaded_memory_hit: session_id={}",
+                session_id
+            );
+            // #endregion
             return Ok(());
         }
         if request.workspace_id.is_none() && request.workspace_path.trim().is_empty() {
@@ -787,13 +843,21 @@ impl DesktopSessionApplication {
                 "workspace_id is required when the session is not loaded".to_string(),
             ));
         }
-        let scope = self.resolved_scope(request).await?;
+        let scope = self
+            .traced_session_scope(request, session_id, "ensure_loaded")
+            .await?;
         self.ensure_runtime_ownership(&scope)?;
         let storage_path = self.storage_path(&scope);
         self.compatibility
             .ensure_session_loaded_from_storage_path(&storage_path, session_id, include_internal)
             .await
-            .map_err(desktop_core_session_error)
+            .map_err(|error| {
+                // #region agent log: SessionRecoveryTrace
+                info!("SessionRecoveryTrace ensure_loaded_failed: session_id={}, storage_path={}, error={}",
+                    session_id, storage_path.display(), error);
+                // #endregion
+                desktop_core_session_error(error)
+            })
     }
 
     pub(crate) async fn restore_session(
@@ -844,7 +908,9 @@ impl DesktopSessionApplication {
         F: FnOnce(u64) + Send,
     {
         let path_started_at = Instant::now();
-        let scope = self.resolved_scope(request).await?;
+        let scope = self
+            .traced_session_scope(request, session_id, "restore_view")
+            .await?;
         let storage_path = self.storage_path(&scope);
         let resolve_storage_path_duration_ms =
             path_started_at.elapsed().as_millis().min(u64::MAX as u128) as u64;
@@ -858,7 +924,19 @@ impl DesktopSessionApplication {
                 tail_turn_count,
             )
             .await
-            .map_err(|error| DesktopSessionApplicationError::Core(error.to_string()))?;
+            .map_err(|error| {
+                // #region agent log: SessionRecoveryTrace
+                info!("SessionRecoveryTrace restore_view_failed: session_id={}, storage_path={}, error={}",
+                    session_id, storage_path.display(), error);
+                // #endregion
+                DesktopSessionApplicationError::Core(error.to_string())
+            })?;
+        // #region agent log: SessionRecoveryTrace
+        info!("SessionRecoveryTrace restore_view_loaded: session_id={}, storage_path={}, workspace_id={:?}, project_workspace_id={:?}, workspace_path={:?}, project_workspace_path={:?}, turns={}",
+            session_id, storage_path.display(), session.config.workspace_id,
+            session.config.project_workspace_id, session.config.workspace_path,
+            session.config.project_workspace_path, turns.len());
+        // #endregion
         let live_session = self
             .compatibility
             .loaded_session_snapshot(session_id)

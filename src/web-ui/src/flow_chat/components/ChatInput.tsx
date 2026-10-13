@@ -2507,6 +2507,19 @@ export const ChatInput: React.FC<ChatInputProps> = ({
         const permissionSessionId = isBtwDraftTarget
           ? effectiveTargetSession?.parentSessionId : effectiveTargetSessionId;
         if (!permissionSessionId) return;
+        // #region agent log: SessionRecoveryTrace
+        log.info('SessionRecoveryTrace permission_mode_request', {
+          sessionId: permissionSessionId, targetSessionId: effectiveTargetSessionId, generation,
+          workspaceId: sessionOwningId, workspacePath: sessionOwningPath,
+          sessionWorkspaceId: effectiveTargetSession?.workspaceId,
+          sessionProjectWorkspaceId: effectiveTargetSession?.projectWorkspaceId,
+          sessionWorkspacePath: effectiveTargetSession?.workspacePath,
+          sessionProjectWorkspacePath: effectiveTargetSession?.projectWorkspacePath,
+          remoteConnectionId: effectiveTargetSession?.remoteConnectionId,
+          remoteSshHost: effectiveTargetSession?.remoteSshHost,
+          turnId: activePermissionTurnId,
+        });
+        // #endregion
         const response = await agentAPI.getSessionPermissionMode({
           sessionId: permissionSessionId,
           turnId: activePermissionTurnId ?? undefined,
@@ -2515,6 +2528,13 @@ export const ChatInput: React.FC<ChatInputProps> = ({
           remoteConnectionId: effectiveTargetSession?.remoteConnectionId,
           remoteSshHost: effectiveTargetSession?.remoteSshHost,
         });
+        // #region agent log: SessionRecoveryTrace
+        log.info('SessionRecoveryTrace permission_mode_response', {
+          sessionId: permissionSessionId, generation,
+          currentGeneration: permissionModeRequestGenerationRef.current,
+          mode: response.mode, turnMode: response.turnMode, activeTurnId: response.activeTurnId,
+        });
+        // #endregion
         if (permissionModeRequestGenerationRef.current !== generation) return;
         setSessionPermissionMode(response.mode ?? null);
         setSessionPermissionModeUnread(false);
@@ -2523,6 +2543,14 @@ export const ChatInput: React.FC<ChatInputProps> = ({
           setActiveTurnPermissionMode(response.turnMode ?? null);
         }
       } catch (error) {
+        // #region agent log: SessionRecoveryTrace
+        log.info('SessionRecoveryTrace permission_mode_failed', {
+          sessionId: effectiveTargetSessionId, generation,
+          currentGeneration: permissionModeRequestGenerationRef.current,
+          workspaceId: sessionOwningId, workspacePath: sessionOwningPath,
+          sessionInUse: isSessionInUseError(error), error,
+        });
+        // #endregion
         log.warn('Failed to read session permission mode', error);
         // Falling back to the global default is the safe read: it never shows a
         // wider mode than the session actually runs with. Report the fallback

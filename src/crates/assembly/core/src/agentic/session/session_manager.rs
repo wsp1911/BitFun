@@ -561,6 +561,10 @@ impl SessionManager {
             .entry(session_id.to_string())
         {
             Entry::Vacant(entry) => {
+                // #region agent log: SessionRecoveryTrace
+                info!("SessionRecoveryTrace binding_claim_new: session_id={}, storage_path={}, loaded={}",
+                    session_id, requested_path.display(), self.sessions.contains_key(session_id));
+                // #endregion
                 entry.insert(SessionStoragePathBinding {
                     path: requested_path,
                     pending_claims: 1,
@@ -571,6 +575,12 @@ impl SessionManager {
             Entry::Occupied(mut entry) => {
                 let existing_path = Self::normalize_session_storage_path(&entry.get().path);
                 if existing_path != requested_path {
+                    // #region agent log: SessionRecoveryTrace
+                    info!(
+                        "SessionRecoveryTrace storage_binding_conflict: session_id={}, existing_storage_path={}, requested_storage_path={}",
+                        session_id, existing_path.display(), requested_path.display()
+                    );
+                    // #endregion
                     return Err(OpenBitFunError::Validation(format!(
                         "Session ID is already bound to another workspace: session_id={}, existing_storage_path={}, requested_storage_path={}",
                         session_id,
@@ -583,6 +593,11 @@ impl SessionManager {
                         "Session ID already exists: {session_id}"
                     )));
                 }
+                // #region agent log: SessionRecoveryTrace
+                info!("SessionRecoveryTrace binding_claim_existing: session_id={}, storage_path={}, committed={}, pending_claims={}, loaded={}",
+                    session_id, existing_path.display(), entry.get().committed,
+                    entry.get().pending_claims, self.sessions.contains_key(session_id));
+                // #endregion
                 if entry.get().committed {
                     Ok(false)
                 } else {
@@ -611,6 +626,13 @@ impl SessionManager {
                 let binding = entry.get_mut();
                 binding.committed = true;
                 binding.pending_claims = 0;
+                // #region agent log: SessionRecoveryTrace
+                info!(
+                    "SessionRecoveryTrace binding_committed: session_id={}, storage_path={}",
+                    session_id,
+                    requested_path.display()
+                );
+                // #endregion
             }
         }
     }
@@ -637,10 +659,19 @@ impl SessionManager {
                 let binding = entry.get_mut();
                 binding.committed = true;
                 binding.pending_claims = 0;
+                // #region agent log: SessionRecoveryTrace
+                info!("SessionRecoveryTrace binding_failed_claim_kept_loaded: session_id={}, storage_path={}",
+                    session_id, requested_path.display());
+                // #endregion
                 return;
             }
             let binding = entry.get_mut();
             binding.pending_claims = binding.pending_claims.saturating_sub(1);
+            // #region agent log: SessionRecoveryTrace
+            info!("SessionRecoveryTrace binding_failed_claim_released: session_id={}, storage_path={}, committed={}, pending_claims={}, loaded={}",
+                session_id, requested_path.display(), binding.committed,
+                binding.pending_claims, session_exists);
+            // #endregion
             if binding.pending_claims == 0 && !binding.committed {
                 entry.remove();
             }
@@ -648,6 +679,13 @@ impl SessionManager {
     }
 
     fn bind_session_storage_path_committed(&self, session_id: &str, path: PathBuf) {
+        // #region agent log: SessionRecoveryTrace
+        info!(
+            "SessionRecoveryTrace binding_direct_commit: session_id={}, storage_path={}",
+            session_id,
+            path.display()
+        );
+        // #endregion
         self.session_storage_path_index.insert(
             session_id.to_string(),
             SessionStoragePathBinding {
@@ -681,6 +719,11 @@ impl SessionManager {
         };
         let existing_path = Self::normalize_session_storage_path(&binding.path);
         if existing_path != requested_path {
+            // #region agent log: SessionRecoveryTrace
+            info!("SessionRecoveryTrace binding_validation_conflict: session_id={}, existing_storage_path={}, requested_storage_path={}, committed={}, pending_claims={}, loaded={}",
+                session_id, existing_path.display(), requested_path.display(), binding.committed,
+                binding.pending_claims, self.sessions.contains_key(session_id));
+            // #endregion
             return Err(OpenBitFunError::Validation(format!(
                 "Session ID is already bound to another workspace: session_id={}, existing_storage_path={}, requested_storage_path={}",
                 session_id,
@@ -5732,6 +5775,15 @@ impl SessionManager {
         session_id: &str,
         include_internal: bool,
     ) -> OpenBitFunResult<(Session, Vec<DialogTurnData>)> {
+        // #region agent log: SessionRecoveryTrace
+        info!(
+            "SessionRecoveryTrace restore_start: session_id={}, storage_path={}, include_internal={}, loaded_in_memory={}",
+            session_id,
+            session_storage_path.display(),
+            include_internal,
+            self.sessions.contains_key(session_id),
+        );
+        // #endregion
         let _mutation_guard = self.lock_session_mutation(session_id).await;
         let _evidence_ledger_guard = self.evidence_ledger_operation_locks.lock(session_id).await;
 
@@ -5776,6 +5828,14 @@ impl SessionManager {
         } else if let Some(write_lock) = session_write_lock {
             self.commit_session_write_lock(session_id, write_lock);
         }
+        // #region agent log: SessionRecoveryTrace
+        info!(
+            "SessionRecoveryTrace restore_result: session_id={}, storage_path={}, result={}",
+            session_id,
+            session_storage_path.display(),
+            if result.is_ok() { "ok" } else { "error" },
+        );
+        // #endregion
         result
     }
 
@@ -5829,6 +5889,13 @@ impl SessionManager {
             .persistence_manager
             .load_session_with_turns(session_storage_path, session_id)
             .await?;
+        // #region agent log: SessionRecoveryTrace
+        info!("SessionRecoveryTrace restore_disk_loaded: session_id={}, storage_path={}, workspace_id={:?}, project_workspace_id={:?}, workspace_path={:?}, project_workspace_path={:?}, remote_connection_id={:?}, remote_ssh_host={:?}",
+            session_id, session_storage_path.display(), session.config.workspace_id,
+            session.config.project_workspace_id, session.config.workspace_path,
+            session.config.project_workspace_path, session.config.remote_connection_id,
+            session.config.remote_ssh_host);
+        // #endregion
         let staged_revert = self
             .persistence_manager
             .load_session_revert_state(session_storage_path, session_id)
