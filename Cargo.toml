@@ -213,6 +213,7 @@ sse-stream = "0.2.3"
 which = "8.0"
 similar = "2.5"
 urlencoding = "2.1"
+lean-ctx-patterns = { git = "https://github.com/yvgude/lean-ctx.git", rev = "7b157a3", package = "lean-ctx-patterns" }
 oxc = { version = "0.138.0", default-features = false, features = ["ast_visit", "codegen", "semantic", "transformer"] }
 oxc-parse = { package = "oxc", version = "0.138.0", default-features = false }
 sqlx = { version = "0.8", default-features = false }

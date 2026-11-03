@@ -1,4 +1,5 @@
 pub mod background_command_output;
+pub mod command_output_filter;
 pub mod computer_use;
 pub mod context;
 pub mod exec_command;

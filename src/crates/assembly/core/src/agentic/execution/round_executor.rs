@@ -2107,6 +2107,7 @@ impl RoundExecutor {
                 subagent_batch_execution_policy,
                 permission_policy,
                 auto_approve_ask,
+                command_output_filter_enabled: global_config.ai.command_output_filter.enabled,
                 ..ToolExecutionOptions::default()
             };
 

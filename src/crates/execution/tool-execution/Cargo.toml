@@ -8,6 +8,7 @@ default = []
 shell-analysis = []
 document-read = ["dep:anydoc", "dep:pdf-inspector", "dep:roxmltree", "dep:sha2", "dep:zip"]
 web-readable = ["dep:htmd", "dep:legible", "dep:readability-js"]
+command-output-filter = ["dep:lean-ctx-patterns"]
 
 [dependencies]
 anydoc = { workspace = true, optional = true }
@@ -22,6 +23,7 @@ grep-regex = { workspace = true }
 grep-searcher = { workspace = true }
 htmd = { version = "0.5.4", optional = true }
 ignore = { workspace = true }
+lean-ctx-patterns = { workspace = true, optional = true }
 legible = { version = "0.4.2", optional = true }
 log = { workspace = true }
 pdf-inspector = { workspace = true, optional = true }

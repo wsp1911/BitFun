@@ -15424,6 +15424,7 @@ impl ConversationCoordinator {
             // This is an explicit user-authored command. Automatically answer
             // only interactive `ask`; ToolPipeline still enforces every deny.
             auto_approve_ask: true,
+            command_output_filter_enabled: global_config.ai.command_output_filter.enabled,
             ..ToolExecutionOptions::default()
         })
     }

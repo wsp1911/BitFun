@@ -68,7 +68,7 @@ const ExecutionSettingsPage: React.FC = () => {
 
   const { buildModelOption } = useModelSelectPresentation();
 
-  const seed = useConfigSeed([modelSelectionsConfigPath(), 'ai.models', 'ai.enable_deferred_tool_loading', 'ai.subagent_max_concurrency', 'ai.swarm_max_concurrency', 'ai.tool_execution_timeout_secs', 'ai.subagent_batch_execution_policy', 'ai.user_question_timeout_secs', 'ai.tool_presentation_mode']);
+  const seed = useConfigSeed([modelSelectionsConfigPath(), 'ai.models', 'ai.enable_deferred_tool_loading', 'ai.subagent_max_concurrency', 'ai.swarm_max_concurrency', 'ai.tool_execution_timeout_secs', 'ai.subagent_batch_execution_policy', 'ai.user_question_timeout_secs', 'ai.tool_presentation_mode', 'ai.command_output_filter']);
   let seededSelections: AgentModelSelections | undefined;
   if (seed.loaded) {
     try { seededSelections = effectiveModelSelections(seed.get(modelSelectionsConfigPath(), undefined)); }
@@ -114,6 +114,28 @@ const ExecutionSettingsPage: React.FC = () => {
   );
 
   const [toolPresentationModeSaving, setToolPresentationModeSaving] = useState(false);
+
+  const [commandOutputFilterEnabled, setCommandOutputFilterEnabled] = useState(
+    seed.get<{ enabled?: boolean } | null>('ai.command_output_filter', null)?.enabled === true,
+  );
+
+  const [commandOutputFilterSaving, setCommandOutputFilterSaving] = useState(false);
+
+  const handleCommandOutputFilterChange = async (enabled: boolean) => {
+    const previous = commandOutputFilterEnabled;
+    setCommandOutputFilterEnabled(enabled);
+    setCommandOutputFilterSaving(true);
+    try {
+      await configManager.setConfig('ai.command_output_filter.enabled', enabled);
+      notificationService.success(t('messages.saveSuccess'), { duration: 2000 });
+    } catch (error) {
+      log.error('Failed to save command output filter setting', error);
+      setCommandOutputFilterEnabled(previous);
+      notificationService.error(t('messages.saveFailed'));
+    } finally {
+      setCommandOutputFilterSaving(false);
+    }
+  };
 
   const subagentBatchExecutionPolicyOptions: DescribedSelectOption[] = [
     {
@@ -317,6 +339,7 @@ const ExecutionSettingsPage: React.FC = () => {
         loadedSubagentBatchExecutionPolicy,
         loadedUserQuestionTimeout,
         loadedToolPresentationMode,
+        loadedCommandOutputFilter,
         poolDocument,
       ] = await Promise.all([
         readModelSelections(),
@@ -328,6 +351,7 @@ const ExecutionSettingsPage: React.FC = () => {
         configManager.getConfig<SubagentBatchExecutionPolicy>('ai.subagent_batch_execution_policy'),
         configManager.getOptionalConfig<number | null>('ai.user_question_timeout_secs'),
         configManager.getOptionalConfig<string>('ai.tool_presentation_mode'),
+        configManager.getOptionalConfig<{ enabled?: boolean }>('ai.command_output_filter'),
         supportsModelPools() ? configManager.getOptionalConfig<ModelPoolDocument>('ai.model_pools') : Promise.resolve(undefined),
       ]);
       setSubagentDefaultModel(loadedSubagentDefaultModel.subagents.default);
@@ -350,6 +374,7 @@ const ExecutionSettingsPage: React.FC = () => {
           ? loadedToolPresentationMode
           : 'native',
       );
+      setCommandOutputFilterEnabled(loadedCommandOutputFilter?.enabled === true);
 
       hasLoadedPageDataRef.current = true;
     } catch (error) {
@@ -438,6 +463,19 @@ const ExecutionSettingsPage: React.FC = () => {
           <ConfigPageSection
             title={t('toolExecution.sectionTitle')}
           >
+            <ConfigPageRow
+              label={t('commandOutputFilter.enable')}
+              description={t('commandOutputFilter.description')}
+              align="center"
+            >
+              <div className="openbitfun-runtime-settings__row-control" data-openbitfun-component="runtime-settings" data-openbitfun-part="control">
+                <Switch
+                  checked={commandOutputFilterEnabled}
+                  onChange={(event) => void handleCommandOutputFilterChange(event.target.checked)}
+                  disabled={commandOutputFilterSaving}
+                />
+              </div>
+            </ConfigPageRow>
             <ConfigPageRow
               label={tTools('config.executionTimeout')}
               description={tTools('config.executionTimeoutDesc')}

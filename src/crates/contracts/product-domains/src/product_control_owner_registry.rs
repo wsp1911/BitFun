@@ -948,6 +948,12 @@ pub fn owner_definitions() -> Vec<ProductControlOwnerDefinition> {
         ),
         option(
             "setting.tools.execution",
+            "command-output-filter",
+            boolean(),
+            config("ai.command_output_filter.enabled"),
+        ),
+        option(
+            "setting.tools.execution",
             "subagent-batch-policy",
             string_enum(&["safe_only", "force_parallel", "serial"]),
             config("ai.subagent_batch_execution_policy"),

@@ -859,6 +859,18 @@ pub fn render_exec_command_response_for_assistant(data: &Value) -> String {
     render_exec_response_for_assistant_with_notes(data, status_lines, note_lines, 3)
 }
 
+/// Render the standard ExecCommand envelope with a projected output while
+/// retaining all status, timing, completion, and metadata fields from the
+/// canonical result.
+pub fn render_exec_command_response_for_assistant_with_output(
+    data: &Value,
+    output: &str,
+) -> String {
+    let mut projected = data.clone();
+    projected["output"] = Value::String(output.to_string());
+    render_exec_command_response_for_assistant(&projected)
+}
+
 pub fn render_write_stdin_response_for_assistant(data: &Value) -> String {
     render_exec_response_for_assistant(data, completion_status_lines(data), 4)
 }

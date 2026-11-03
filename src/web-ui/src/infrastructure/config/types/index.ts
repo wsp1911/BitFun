@@ -473,6 +473,7 @@ export interface ModelRoutingConfig {
 export interface AIConfig {
   models: AIModelConfig[];
   tool_presentation_mode?: 'native' | 'ptc' | 'ptc_python';
+  command_output_filter?: { enabled: boolean };
   default_models: DefaultModelsConfig;
   model_routing?: ModelRoutingConfig;
   agent_model_defaults: AgentModelDefaultsConfig;
@@ -796,6 +797,7 @@ export type ConfigPath =
   | 'app.flow_chat.last_mode_id'
   | 'app.flow_chat.show_permission_mode_control'
   | 'ai.tool_presentation_mode'
+  | 'ai.command_output_filter'
   | 'app.flow_chat.auto_show_selection_toolbar'
   | 'app.flow_chat.send_during_turn'
   | 'app.sidebar'

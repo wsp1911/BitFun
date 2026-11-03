@@ -88,6 +88,84 @@ fn persisted_effective_tool_name(
     (wire_tool_name != effective_tool_name).then(|| effective_tool_name.to_string())
 }
 
+fn apply_command_output_filter(
+    task: &ToolTask,
+    effective_tool_name: &str,
+    result: &mut ModelToolResult,
+) {
+    if !task.options.command_output_filter_enabled || effective_tool_name != "ExecCommand" {
+        return;
+    }
+
+    let Some(command) = task
+        .effective_arguments()
+        .get("cmd")
+        .and_then(serde_json::Value::as_str)
+    else {
+        return;
+    };
+
+    let ModelToolResult {
+        result: data,
+        result_for_assistant,
+        ..
+    } = result;
+    let Some(current_projection) = result_for_assistant.as_ref() else {
+        return;
+    };
+    if openbitfun_agent_tools::tool_result_is_persisted_output(current_projection) {
+        return;
+    }
+
+    // Plugin hooks may intentionally provide a custom presentation. Only
+    // replace the standard ExecCommand envelope that the tool itself emitted.
+    let standard_projection =
+        tool_runtime::exec_command::render_exec_command_response_for_assistant(data);
+    if current_projection != &standard_projection {
+        return;
+    }
+
+    let Some(output) = data.get("output").and_then(serde_json::Value::as_str) else {
+        return;
+    };
+    let completion_status = data
+        .get("completion")
+        .and_then(|completion| completion.get("status"))
+        .and_then(serde_json::Value::as_str);
+    let timed_out = data
+        .get("session_id")
+        .is_some_and(|session_id| !session_id.is_null())
+        || completion_status.is_some_and(|status| status != "exited");
+
+    let Some(filtered) = tool_runtime::command_output_filter::filter(
+        tool_runtime::command_output_filter::CommandOutputFilterInput {
+            command,
+            output,
+            exit_code: data
+                .get("exit_code")
+                .and_then(serde_json::Value::as_i64)
+                .map(|code| code as i32),
+            timed_out,
+        },
+    ) else {
+        return;
+    };
+
+    *result_for_assistant = Some(
+        tool_runtime::exec_command::render_exec_command_response_for_assistant_with_output(
+            data,
+            &filtered.output,
+        ),
+    );
+    debug!(
+        "Filtered ExecCommand output: tool_id={}, rule={}, original_chars={}, filtered_chars={}",
+        result.tool_id,
+        filtered.rule_id.unwrap_or("unknown"),
+        filtered.original_chars,
+        filtered.filtered_chars
+    );
+}
+
 #[cfg(feature = "opencode-plugin-host")]
 struct PluginAfterPresentation {
     title: String,
@@ -2638,6 +2716,8 @@ impl ToolPipeline {
                     )
                     .await;
 
+                apply_command_output_filter(&task, &tool_name, &mut tool_result);
+
                 if !matches!(repair_kind, ToolArgumentRepairKind::None) || recovered_from_truncation
                 {
                     let original = tool_result.result_for_assistant.unwrap_or_default();
@@ -4321,6 +4401,44 @@ mod tests {
             test_tool_execution_context(),
             ToolExecutionOptions::default(),
         )
+    }
+
+    #[test]
+    fn command_output_filter_replaces_only_assistant_projection() {
+        let mut task = test_tool_task_with_arguments(
+            "filter-command",
+            "ExecCommand",
+            json!({"cmd": "git status --short"}),
+        );
+        task.options.command_output_filter_enabled = true;
+        let data = json!({
+            "wall_time_seconds": 0.1,
+            "output": "\u{1b}[32m M src/main.rs\u{1b}[0m\n",
+            "session_id": null,
+            "exit_code": 0,
+            "completion": {"status": "exited", "source": "process"},
+            "tty": false,
+        });
+        let original_output = data["output"].as_str().unwrap().to_string();
+        let mut result = ModelToolResult {
+            tool_id: task.tool_call.tool_id.clone(),
+            tool_name: "ExecCommand".to_string(),
+            effective_tool_name: Some("ExecCommand".to_string()),
+            result: data.clone(),
+            result_for_assistant: Some(
+                tool_runtime::exec_command::render_exec_command_response_for_assistant(&data),
+            ),
+            is_error: false,
+            duration_ms: None,
+            image_attachments: None,
+        };
+
+        apply_command_output_filter(&task, "ExecCommand", &mut result);
+
+        assert_eq!(result.result["output"], original_output);
+        let projection = result.result_for_assistant.unwrap();
+        assert!(projection.contains("M src/main.rs"));
+        assert!(!projection.contains('\u{1b}'));
     }
 
     #[cfg(feature = "external-sources")]

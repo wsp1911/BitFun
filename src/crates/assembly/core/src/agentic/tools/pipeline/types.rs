@@ -30,6 +30,9 @@ pub struct ToolExecutionOptions {
     pub permission_policy: ResolvedPermissionPolicy,
     /// Automatically reply `once` to `ask` requests through the permission manager.
     pub auto_approve_ask: bool,
+    /// Apply the optional deterministic projection to completed ExecCommand
+    /// output. The capability is compiled separately; this is the user policy.
+    pub command_output_filter_enabled: bool,
     /// Optional owner-provided token that latches cancellation before tool
     /// validation and permission preflight have registered pipeline state.
     pub parent_cancellation_token: Option<CancellationToken>,
@@ -44,6 +47,7 @@ impl Default for ToolExecutionOptions {
             timeout_secs: None, // Default no timeout (infinite waiting)
             permission_policy: ResolvedPermissionPolicy::default(),
             auto_approve_ask: false,
+            command_output_filter_enabled: false,
             parent_cancellation_token: None,
         }
     }
