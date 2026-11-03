@@ -26,6 +26,7 @@ server = [
     "dep:openbitfun-core",
     "dep:sha2",
     "openbitfun-core/agent-runtime",
+    "openbitfun-core/command-output-filter",
     "openbitfun-core/document-read",
     "openbitfun-core/subscription-auth",
     "openbitfun-core/external-sources",

@@ -8030,6 +8030,7 @@
         "工具调用超时",
         "延迟加载工具",
         "工具呈现模式",
+        "命令输出过滤",
         "PTC",
         "审批",
         "并行",
@@ -8043,6 +8044,7 @@
         "tool permissions",
         "deferred tool loading",
         "tool presentation",
+        "command output filtering",
         "PTC",
         "approval",
         "parallel",
@@ -8189,6 +8191,28 @@
           },
           "evidence": [
             "source:src/web-ui/src/locales/zh-CN/settings/runtime.json#toolPresentation.mode"
+          ]
+        },
+        {
+          "id": "command-output-filter",
+          "titleZh": "压缩支持命令中的重复输出以减少模型上下文占用",
+          "titleEn": "Compress repetitive output from supported commands to reduce model context",
+          "destination": {
+            "kind": "settings",
+            "pageId": "tools.execution",
+            "viewId": "advanced"
+          },
+          "control": {
+            "kind": "direct",
+            "operations": [],
+            "options": [
+              {
+                "id": "command-output-filter"
+              }
+            ]
+          },
+          "evidence": [
+            "source:src/web-ui/src/locales/zh-CN/settings/runtime.json#commandOutputFilter.enable"
           ]
         },
         {
@@ -8395,6 +8419,13 @@
           "titleEn": "Tool presentation mode",
           "descriptionZh": "选择模型直接调用原生工具，或通过 PTC TypeScript/Python 调用工具。",
           "descriptionEn": "Choose whether the model calls native tools directly or uses PTC TypeScript or Python."
+        },
+        {
+          "id": "command-output-filter",
+          "titleZh": "命令输出过滤",
+          "titleEn": "Command output filtering",
+          "descriptionZh": "在发送给模型前压缩支持命令中的重复输出，默认关闭。",
+          "descriptionEn": "Compress repetitive output from supported commands before it reaches the model; off by default."
         },
         {
           "id": "subagent-batch-policy",

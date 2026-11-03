@@ -58,6 +58,10 @@
     "sectionTitle": "Tool execution",
     "sectionDescription": "Tool execution and waiting for an answer have separate timers; set either to 0 for no timeout"
   },
+  "commandOutputFilter": {
+    "enable": "Filter command output",
+    "description": "Reduce repetitive output from supported commands before it reaches the model. Off by default."
+  },
   "permissionPolicy": {
     "sectionTitle": "Tool permissions",
     "sectionDescription": "Choose when tool actions need approval and which actions are allowed or denied",

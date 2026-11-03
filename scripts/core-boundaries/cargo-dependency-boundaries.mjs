@@ -1448,6 +1448,7 @@ export function findProductEntrypointCoreFeatureViolations(
 ) {
   const coreCompatibilityReviewedFeatures = [
     'agent-runtime',
+    'command-output-filter',
     'document-read',
     'subscription-auth',
     'external-sources',
@@ -1488,6 +1489,7 @@ export function findProductEntrypointCoreFeatureViolations(
   const fullProductCoreEntrypointsFound = new Set();
   const coreCompatibilityActiveFeatures = [
     'agent-runtime',
+    'command-output-filter',
     'ai-adapter-runtime',
     'browser-control',
     'canvas-runtime',

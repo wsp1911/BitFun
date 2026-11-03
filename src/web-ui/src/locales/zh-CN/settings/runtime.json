@@ -58,6 +58,10 @@
     "sectionTitle": "工具运行",
     "sectionDescription": "工具运行和等待回答分别计时，设为 0 可取消对应时限"
   },
+  "commandOutputFilter": {
+    "enable": "过滤命令输出",
+    "description": "在发送给模型前压缩支持命令中的重复输出，默认关闭。"
+  },
   "permissionPolicy": {
     "sectionTitle": "工具权限",
     "sectionDescription": "决定工具操作是否需要确认，以及哪些操作允许或拒绝",

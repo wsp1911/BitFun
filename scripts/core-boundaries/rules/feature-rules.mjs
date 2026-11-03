@@ -266,7 +266,7 @@ export const optionalDependencyFeatureOwnerRules = [
       { depName: 'unic-langid', ownerFeatures: ['i18n-runtime'] },
       {
         depName: 'tool-runtime',
-        ownerFeatures: ['agent-runtime', 'document-read', 'web-tools'],
+        ownerFeatures: ['agent-runtime', 'command-output-filter', 'document-read', 'web-tools'],
       },
     ],
   },
@@ -732,6 +732,7 @@ export const coreProductFullFeatureAssemblyRule = {
   featureName: 'product-full',
   requiredFeatureRefs: [
     'agent-runtime',
+    'command-output-filter',
     'product-search',
     'diagnostics',
     'diff',
@@ -788,6 +789,7 @@ export const acpClientCoreFeatures = [
 
 export const acpServerCoreFeatures = [
   'agent-runtime',
+  'command-output-filter',
   'document-read',
   'subscription-auth',
   'external-sources',
@@ -957,6 +959,14 @@ export const coreClosedFeatureProfileRules = [
     exact: true,
     reason:
       'openbitfun-core agent-runtime is the reviewed Core Agent Runtime owner closure, not a product-full alias',
+  },
+  {
+    manifestPath: 'src/crates/assembly/core/Cargo.toml',
+    featureName: 'command-output-filter',
+    requiredFeatureRefs: ['dep:tool-runtime', 'tool-runtime/command-output-filter'],
+    exact: true,
+    reason:
+      'openbitfun-core command-output-filter must own only the deterministic command-output pattern backend',
   },
   {
     manifestPath: 'src/crates/assembly/core/Cargo.toml',

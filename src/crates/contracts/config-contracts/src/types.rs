@@ -1242,6 +1242,23 @@ impl Default for ModelRoutingConfig {
     }
 }
 
+/// Deterministic projection of repetitive completed command output.
+///
+/// The capability is compiled into supported products but remains disabled by
+/// default so existing sessions keep their current assistant-facing output.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct CommandOutputFilterConfig {
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub enabled: bool,
+}
+
+impl Default for CommandOutputFilterConfig {
+    fn default() -> Self {
+        Self { enabled: false }
+    }
+}
+
 /// AI configuration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
@@ -1253,6 +1270,11 @@ pub struct AIConfig {
     /// Existing sessions retain their persisted presentation mode.
     #[serde(default)]
     pub tool_presentation_mode: ToolPresentationMode,
+
+    /// Optional deterministic filtering/compression for completed ExecCommand
+    /// output. This affects only future tool calls.
+    #[serde(default, skip_serializing_if = "is_default_command_output_filter")]
+    pub command_output_filter: CommandOutputFilterConfig,
 
     #[serde(default)]
     pub model_pools: crate::model_pool::ModelPoolDocument,
@@ -1714,6 +1736,10 @@ fn default_true() -> bool {
 
 fn is_false(value: &bool) -> bool {
     !*value
+}
+
+fn is_default_command_output_filter(value: &CommandOutputFilterConfig) -> bool {
+    !value.enabled
 }
 
 fn is_true(value: &bool) -> bool {
@@ -2290,6 +2316,7 @@ impl Default for AIConfig {
             model_pools: crate::model_pool::ModelPoolDocument::default(),
             models: vec![],
             tool_presentation_mode: ToolPresentationMode::default(),
+            command_output_filter: CommandOutputFilterConfig::default(),
             task_models: TaskModelsConfig::default(),
             default_models: DefaultModelsConfig::default(),
             model_routing: ModelRoutingConfig::default(),
@@ -3816,6 +3843,24 @@ mod tests {
             let reloaded: AIConfig = serde_json::from_value(payload).unwrap();
             assert_eq!(reloaded.enable_edit_constraint_guard, enabled);
         }
+    }
+
+    #[test]
+    fn command_output_filter_defaults_off_and_round_trips_explicit_opt_in() {
+        let old: AIConfig = serde_json::from_value(serde_json::json!({"max_rounds": 42})).unwrap();
+        assert!(!old.command_output_filter.enabled);
+        let payload = serde_json::to_value(&old).unwrap();
+        assert!(payload.get("command_output_filter").is_none());
+
+        let enabled: AIConfig = serde_json::from_value(serde_json::json!({
+            "command_output_filter": {"enabled": true}
+        }))
+        .unwrap();
+        assert!(enabled.command_output_filter.enabled);
+        let payload = serde_json::to_value(&enabled).unwrap();
+        assert_eq!(payload["command_output_filter"]["enabled"], true);
+        let reloaded: AIConfig = serde_json::from_value(payload).unwrap();
+        assert!(reloaded.command_output_filter.enabled);
     }
 
     #[test]

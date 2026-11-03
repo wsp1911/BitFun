@@ -4,8 +4,8 @@
   "title": "OpenBitFun Playbook",
   "origin": "https://playbook.openbitfun.com",
   "source": "src/shared/interactive-capabilities/catalog.json",
-  "digest": "513e184cc2d93f183cdea258516f532caf58ac6400ef76dce9b54f6de0752627",
-  "ownerDigest": "3cc6d7d869b2c90c2161494a854b5ff7eb72ea69a1a28e40ccd42065fb3382e2",
+  "digest": "595b45a63d6794e6b21c117e6dcefddfee4be94a958c4cf07f3afb1af0c3adcf",
+  "ownerDigest": "b435556120fc1e9ee65f18967207b89a53daaa53e501088efa8657b1f015693b",
   "searchAcceptance": [
     {
       "id": "native-image-generation",
@@ -175,9 +175,9 @@
     "features": 22,
     "settings": 22,
     "userFacing": 44,
-    "documentedItems": 338,
+    "documentedItems": 339,
     "controlCoverage": {
-      "direct": 62,
+      "direct": 63,
       "delegated": 72,
       "interactive": 204,
       "unsupported": 0
@@ -16754,6 +16754,7 @@
         "remembered-grants",
         "deferred-tools",
         "tool-presentation",
+        "command-output-filter",
         "parallelism",
         "timeouts",
         "review-capacity",
@@ -16926,6 +16927,50 @@
           "ptc",
           "ptc_python"
         ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "valueSource": {
+        "kind": "static"
+      },
+      "presentationTarget": {
+        "kind": "settings",
+        "pageId": "tools.execution"
+      }
+    },
+    {
+      "id": "setting.tools.execution:option:command-output-filter",
+      "capabilityId": "setting.tools.execution",
+      "itemIds": [
+        "command-output-filter"
+      ],
+      "kind": "option",
+      "risk": "write",
+      "executionHost": "productHost",
+      "availability": {
+        "desktop": {
+          "available": true
+        },
+        "cli": {
+          "available": true
+        },
+        "peer": {
+          "available": true,
+          "requiredCapabilities": [
+            "product_control_v1"
+          ]
+        },
+        "remoteControl": {
+          "available": true
+        },
+        "detachedDispatch": {
+          "available": true
+        }
+      },
+      "inputSchema": {
+        "type": "boolean"
       },
       "outputSchema": {
         "type": "object",
@@ -30043,6 +30088,7 @@
         "工具调用超时",
         "延迟加载工具",
         "工具呈现模式",
+        "命令输出过滤",
         "PTC",
         "审批",
         "并行",
@@ -30056,6 +30102,7 @@
         "tool permissions",
         "deferred tool loading",
         "tool presentation",
+        "command output filtering",
         "PTC",
         "approval",
         "parallel",
@@ -30176,6 +30223,25 @@
             "options": [
               {
                 "id": "tool-presentation-mode"
+              }
+            ]
+          }
+        },
+        {
+          "id": "command-output-filter",
+          "titleZh": "压缩支持命令中的重复输出以减少模型上下文占用",
+          "titleEn": "Compress repetitive output from supported commands to reduce model context",
+          "destination": {
+            "kind": "settings",
+            "pageId": "tools.execution",
+            "viewId": "advanced"
+          },
+          "control": {
+            "kind": "direct",
+            "operations": [],
+            "options": [
+              {
+                "id": "command-output-filter"
               }
             ]
           }
@@ -30372,6 +30438,16 @@
           }
         },
         {
+          "id": "command-output-filter",
+          "titleZh": "命令输出过滤",
+          "titleEn": "Command output filtering",
+          "descriptionZh": "在发送给模型前压缩支持命令中的重复输出，默认关闭。",
+          "descriptionEn": "Compress repetitive output from supported commands before it reaches the model; off by default.",
+          "valueSchema": {
+            "type": "boolean"
+          }
+        },
+        {
           "id": "subagent-batch-policy",
           "titleZh": "子智能体批量执行策略",
           "titleEn": "Subagent batch policy",
@@ -30465,6 +30541,7 @@
         "工具调用超时",
         "延迟加载工具",
         "工具呈现模式",
+        "命令输出过滤",
         "PTC",
         "审批",
         "并行",
@@ -30476,6 +30553,7 @@
         "tool permissions",
         "deferred tool loading",
         "tool presentation",
+        "command output filtering",
         "approval",
         "parallel",
         "timeout",
@@ -30500,6 +30578,8 @@
         "Deferred tool loading on demand to reduce initial agent context",
         "选择模型使用原生模式、PTC TypeScript 或 PTC Python 模式",
         "Choose native, PTC TypeScript, or PTC Python mode for the model",
+        "压缩支持命令中的重复输出以减少模型上下文占用",
+        "Compress repetitive output from supported commands to reduce model context",
         "设置子智能体与 Swarm 最大并发及安全、强制并行或串行策略",
         "Set subagent and swarm concurrency plus safe-only, forced-parallel, or serial policy",
         "设置或取消单次工具调用超时",

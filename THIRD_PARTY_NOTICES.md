@@ -78,3 +78,19 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+## lean-ctx-patterns
+
+- Project: lean-ctx
+- Source: https://github.com/yvgude/lean-ctx
+- Package: `lean-ctx-patterns`
+- Revision: `7b157a3`
+- License: Apache-2.0
+- Copyright: Copyright (c) yvgude
+
+OpenBitFun uses the package's deterministic ANSI and command-output pattern
+helpers. It does not use the LeanCTX engine, model integrations, network
+services, or environment-backed filtering.
+
+The Apache-2.0 license text is available at
+https://www.apache.org/licenses/LICENSE-2.0.

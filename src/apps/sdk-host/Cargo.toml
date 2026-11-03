@@ -16,6 +16,7 @@ async-trait = { workspace = true }
 openbitfun-agent-runtime = { path = "../../crates/execution/agent-runtime", features = ["agent-runtime"] }
 openbitfun-core = { path = "../../crates/assembly/core", features = [
     "agent-runtime",
+    "command-output-filter",
     "document-read",
     "subscription-auth",
     "external-sources",
